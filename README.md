@@ -1,4 +1,3 @@
-# django-api-base
+# django-api-base (v2025)
 
-- Graphene-Django
-- Django REST Framework
+- latest python, lastest django and latest packages
