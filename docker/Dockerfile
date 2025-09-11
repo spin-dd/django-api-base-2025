@@ -4,15 +4,18 @@ FROM ${BASE_IMAGE}:${TAG} as server
 
 ENV APP_BASE=/usr/src/app \
     LIB_BASE=/usr/src/lib \
-    POETRY_VERSION=1.0.10 \
     NAME=django-api-base \
-    PATH="/root/.poetry/bin:$PATH"
+    PATH="/root/.local/bin:$PATH"
 
 WORKDIR ${LIB_BASE}/${NAME}
 COPY apibase ${LIB_BASE}/${NAME}/apibase
 COPY tests ${LIB_BASE}/${NAME}/tests
-COPY poetry.lock ${LIB_BASE}/${NAME}/poetry.lock
 COPY pyproject.toml  ${LIB_BASE}/${NAME}/pyproject.toml
-RUN poetry install  
+# Install uv (fast Python package manager) and sync dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh -s -- -y \
+    && uv --version \
+    && uv sync --group dev
 
 CMD ["sleep", "infinity"]
