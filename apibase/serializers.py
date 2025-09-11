@@ -1,16 +1,16 @@
 import inspect
 import re
 
+from django.contrib.contenttypes.fields import GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
-from django.contrib.contenttypes.fields import GenericRelation
 from django.http import QueryDict
 from django.urls import reverse
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
 from .urn import model_urn, rest_endpoint_from_urn
-from django.contrib.contenttypes.models import ContentType
 
 
 def to_urn(instance, nss=None, nid=None):
