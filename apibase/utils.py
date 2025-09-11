@@ -9,8 +9,7 @@ from django_filters.utils import get_model_field
 from gql import Client, gql
 from graphene_django.forms.converter import convert_form_field
 from graphene_django.settings import graphene_settings
-from graphql_relay import to_global_id
-from graphql_relay.connection.arrayconnection import get_offset_with_default
+from graphql_relay import get_offset_with_default, to_global_id
 
 from .fields import ListCharField, ListIntegerField, MonthRangeField
 
@@ -46,6 +45,7 @@ def get_filtering_args_from_filterset(filterset_class, type, obvious_filters=Non
         if not form_field:
             form_field = filter_field.field
 
+        # Derive GraphQL type from form field (converter must be registered via init_converter if needed).
         field_type = convert_form_field(form_field).Argument()
         field_type.description = filter_field.label
 
@@ -102,6 +102,7 @@ def query(query_string, schema=None, **params):
 
 
 def init_converter():
+    """Register converters for apibase custom list fields and related types (0.1.0互換)。"""
     convert_form_field.register(
         MultipleChoiceField,
         lambda field: graphene.List(graphene.String, required=field.required),
@@ -120,6 +121,18 @@ def init_converter():
     convert_form_field.register(
         MonthRangeField,
         lambda field: graphene.String(required=field.required),
+    )
+
+
+def init_converter():
+    """Register converters for apibase custom list fields."""
+    convert_form_field.register(
+        ListCharField,
+        lambda field: graphene.List(graphene.String, required=field.required),
+    )
+    convert_form_field.register(
+        ListIntegerField,
+        lambda field: graphene.List(graphene.Int, required=field.required),
     )
 
 
