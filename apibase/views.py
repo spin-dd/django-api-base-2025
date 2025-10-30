@@ -1,5 +1,6 @@
-import rest_framework
 from django.http import HttpResponse
+
+import rest_framework
 from graphene_django import settings, views
 from graphql.utils import schema_printer
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -26,6 +27,6 @@ class DRFAuthenticatedGraphQLView(views.GraphQLView):
 
 @_decorate
 def sdl(request):
-    """GraphQL Schema Definition Language (SDL). """
+    """GraphQL Schema Definition Language (SDL)."""
     schema_str = schema_printer.print_schema(settings.graphene_settings.SCHEMA)
     return HttpResponse(schema_str, content_type="text/plain")

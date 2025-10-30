@@ -1,14 +1,15 @@
 import json
 
-import graphene.relay
 from django.db.models import QuerySet
+
+import graphene.relay
 from graphene.types import generic
 
 from .. import serializers
 from .encoders import JSONEncode
 
 
-class NodeMixin(object):
+class NodeMixin:
     # self: Model Class
 
     pk = graphene.Int()
@@ -40,7 +41,7 @@ class NodeMixin(object):
             return None
 
 
-class SummaryMixin(object):
+class SummaryMixin:
     total_count = graphene.Int()
     records = graphene.Int()
     summary = generic.GenericScalar()

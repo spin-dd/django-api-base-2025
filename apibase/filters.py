@@ -1,14 +1,16 @@
 """
 https://django-filter.readthedocs.io/en/stable/
 """
+
 import operator
 import re
 from functools import reduce
 
-import django_filters
-import jaconv
 from django import forms
 from django.db.models import IntegerField, Q
+
+import django_filters
+import jaconv
 
 from .fields import CharRangeField, ListCharField, ListIntegerField, MonthRangeField
 

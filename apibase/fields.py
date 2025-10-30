@@ -4,6 +4,7 @@ from datetime import date
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms.widgets import SelectMultiple
+
 from django_filters.fields import RangeField
 from django_filters.widgets import SuffixedMultiWidget
 
