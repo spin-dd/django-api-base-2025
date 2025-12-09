@@ -14,12 +14,10 @@ except ImportError:
 
     print_schema = schema_printer.print_schema
 
-
 def _decorate(view):
     view = permission_classes((IsAuthenticated,))(view)
     view = authentication_classes(api_settings.DEFAULT_AUTHENTICATION_CLASSES)(view)
     return api_view(["GET", "POST"])(view)
-
 
 class DRFAuthenticatedGraphQLView(views.GraphQLView):
     def parse_body(self, request):
