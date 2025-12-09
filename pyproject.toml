@@ -1,9 +1,9 @@
 [project]
 name = "apibase"
-version = "0.1.0"
+version = "0.2.0"
 description = ""
 authors = [
-    {name = "user.name", email = "gmail@hdknr.com"}
+    { name = "user.name", email = "gmail@hdknr.com" }
 ]
 requires-python = ">=3.10,<3.13"
 dependencies = [
@@ -55,7 +55,7 @@ exclude = [
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "B", "W", "I", "C4", "UP"]
 ignore = [
-    "D",    # Docstringを書かなくてもよいようにする
+    "D", # Docstringを書かなくてもよいようにする
     "T201", # 'print()'を使えるようにする
     "E501", # line too long, handled by black
     "B008", # do not perform function calls in argument defaults
