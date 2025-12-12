@@ -13,6 +13,25 @@ from rest_framework.fields import empty
 
 from .urn import model_urn, rest_endpoint_from_urn
 
+# OpenAPI schema support (optional)
+try:
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import extend_schema_field
+
+    HAS_DRF_SPECTACULAR = True
+except ImportError:
+    HAS_DRF_SPECTACULAR = False
+
+    def extend_schema_field(*args, **kwargs):
+        def decorator(cls):
+            return cls
+
+        return decorator
+
+    class OpenApiTypes:
+        URI = None
+        STR = None
+
 
 def to_urn(instance, nss=None, nid=None):
     return model_urn(instance, nss=nss, nid=nid)
@@ -34,6 +53,7 @@ def drf_endpoint(instance, url_name=None, pk_name="pk"):
     return ""
 
 
+@extend_schema_field(OpenApiTypes.URI)
 class EndpointField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -52,6 +72,7 @@ class EndpointField(fields.Field):
         return (request and url) and request.build_absolute_uri(url) or url or None
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class UrnField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -64,6 +85,7 @@ class UrnField(fields.Field):
         return to_urn(instance)
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class DisplayField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"

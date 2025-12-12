@@ -31,6 +31,7 @@ dev = [
     "black>=24.0.0",
     "ruff>=0.11.0",
 ]
+schema = ["drf-spectacular>=0.29.0"]
 
 [build-system]
 requires = ["hatchling"]
