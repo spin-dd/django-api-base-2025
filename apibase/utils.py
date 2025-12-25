@@ -10,7 +10,7 @@ from gql import Client, gql
 from graphene_django.forms.converter import convert_form_field
 from graphene_django.settings import graphene_settings
 from graphql_relay import to_global_id
-from graphql_relay.connection.arrayconnection import get_offset_with_default
+from graphql_relay import get_offset_with_default
 
 from .fields import ListCharField, ListIntegerField, MonthRangeField
 
@@ -39,7 +39,9 @@ def get_filtering_args_from_filterset(filterset_class, type, obvious_filters=Non
             model_field = get_model_field(model, filter_field.field_name)
             filter_type = filter_field.lookup_expr
             if filter_type != "isnull" and hasattr(model_field, "formfield"):
-                form_field = model_field.formfield(required=filter_field.extra.get("required", False))
+                form_field = model_field.formfield(
+                    required=filter_field.extra.get("required", False)
+                )
 
         # Fallback to field defined on filter if we can't get it from the
         # model field
@@ -50,7 +52,9 @@ def get_filtering_args_from_filterset(filterset_class, type, obvious_filters=Non
         field_type.description = filter_field.label
 
         # For RangeFilter, duplicate filter args for suffixes
-        if isinstance(filter_field, RangeFilter) and hasattr(filter_field.field, "widget"):
+        if isinstance(filter_field, RangeFilter) and hasattr(
+            filter_field.field, "widget"
+        ):
             suffixes = getattr(filter_field.field.widget, "suffixes", [])
             for s in suffixes:
                 if s:
@@ -81,7 +85,9 @@ def to_content_disposition(filename):
     return f"attachment; filename*=utf-8''{utf8_filename}"
 
 
-def query_instance(query_string, instance=None, object_name=None, id=None, schema=None, **kwargs):
+def query_instance(
+    query_string, instance=None, object_name=None, id=None, schema=None, **kwargs
+):
     schema = schema or graphene_settings.SCHEMA
     if instance:
         object_name = instance._meta.object_name
