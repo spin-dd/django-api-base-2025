@@ -6,13 +6,30 @@ from django.http import Http404
 from django.utils.functional import cached_property
 from django.views import static
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
 from .settings import apibase_settings
+
+# OpenAPI schema support (optional)
+try:
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import OpenApiParameter, extend_schema
+except ImportError:
+
+    def extend_schema(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    class OpenApiParameter:
+        PATH = "path"
+
+    class OpenApiTypes:
+        STR = None
+
 
 logger = getLogger()
 
