@@ -32,6 +32,19 @@ dev = [
     "ruff>=0.11.0",
 ]
 schema = ["drf-spectacular>=0.29.0"]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.26.0",
+    "pymdown-extensions>=10.11.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-section-index>=0.3.0",
+    "mike>=2.0.0",
+]
+all = [
+    "apibase[dev,docs,schema]",
+]
 
 [build-system]
 requires = ["hatchling"]
