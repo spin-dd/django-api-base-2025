@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
 
-import yaml
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Max
 from django.db.models.functions import Coalesce
+
+import yaml
 from factory import fuzzy as FZ
 from gql import gql
 from graphql import print_ast

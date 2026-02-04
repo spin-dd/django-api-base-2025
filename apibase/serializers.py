@@ -7,10 +7,30 @@ from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
 from django.urls import reverse
+
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
 from .urn import model_urn, rest_endpoint_from_urn
+
+# OpenAPI schema support (optional)
+try:
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import extend_schema_field
+
+    HAS_DRF_SPECTACULAR = True
+except ImportError:
+    HAS_DRF_SPECTACULAR = False
+
+    def extend_schema_field(*args, **kwargs):
+        def decorator(cls):
+            return cls
+
+        return decorator
+
+    class OpenApiTypes:
+        URI = None
+        STR = None
 
 
 def to_urn(instance, nss=None, nid=None):
@@ -33,6 +53,7 @@ def drf_endpoint(instance, url_name=None, pk_name="pk"):
     return ""
 
 
+@extend_schema_field(OpenApiTypes.URI)
 class EndpointField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -51,6 +72,7 @@ class EndpointField(fields.Field):
         return (request and url) and request.build_absolute_uri(url) or url or None
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class UrnField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -63,6 +85,7 @@ class UrnField(fields.Field):
         return to_urn(instance)
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class DisplayField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -273,12 +296,12 @@ class BatchListSerializer(serializers.ListSerializer):
 
         updating = {i.pop(id_attr): i for i in all_validated_data}
 
-        if not all((bool(i) and not inspect.isclass(i) for i in updating.keys())):
+        if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")
 
         objects_to_update = queryset.filter(
             **{
-                "{}__in".format(id_attr): updating.keys(),
+                f"{id_attr}__in": updating.keys(),
             }
         )
 

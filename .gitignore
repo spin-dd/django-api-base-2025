@@ -15,6 +15,7 @@
 *.egg-info
 build
 dist
+venv
 .venv
 
 # django projects
@@ -67,3 +68,20 @@ bin/schemaspy
 
 .env
 codebuild_build.sh
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
+
+# Claude Code local files
+.claude/homunculus/
+.claude/settings.local.json
+.claude/*.local.md
+CLAUDE.local.md

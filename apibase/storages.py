@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
 
-import ulid
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone as tz
 from django.utils.deconstruct import deconstructible
+
+import ulid
 
 from .settings import apibase_settings
 

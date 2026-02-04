@@ -5,11 +5,30 @@ from django.contrib.auth.models import Permission
 from django.http import Http404
 from django.utils.functional import cached_property
 from django.views import static
+
 from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
 from .settings import apibase_settings
+
+# OpenAPI schema support (optional)
+try:
+    from drf_spectacular.types import OpenApiTypes
+    from drf_spectacular.utils import OpenApiParameter, extend_schema
+except ImportError:
+
+    def extend_schema(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    class OpenApiParameter:
+        PATH = "path"
+
+    class OpenApiTypes:
+        STR = None
 
 logger = getLogger()
 
@@ -38,12 +57,40 @@ def static_serve(request, path, name=None, document_root="/"):
 
 
 class DownloadMixin:
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="field",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="FileField name to download",
+            )
+        ],
+        responses={200: bytes},
+    )
     @decorators.action(methods=["get"], detail=True, url_path="(?P<field>[^/.]+)/download")
     def download_filefield(self, request, pk, format=None, field=None):
         """download FileField file"""
         instance = self.get_object()
         return self.response_field_data(request, instance, field)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="field",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="FileField name to download",
+            ),
+            OpenApiParameter(
+                name="name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="File path in storage",
+            ),
+        ],
+        responses={200: bytes},
+    )
     @decorators.action(
         methods=["get"],
         detail=False,

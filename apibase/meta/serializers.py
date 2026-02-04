@@ -1,4 +1,5 @@
 from django.db.migrations.serializer import serializer_factory
+
 from rest_framework import serializers
 
 

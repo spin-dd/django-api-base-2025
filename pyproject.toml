@@ -1,75 +1,155 @@
 [project]
 name = "apibase"
-version = "0.2.0"
+version = "0.2.1"
 description = ""
 authors = [
-  { name = "user.name", email = "gmail@hdknr.com" }
+    { name = "user.name", email = "gmail@hdknr.com" }
 ]
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.10,<3.13"
 dependencies = [
-  "graphene-django>=3.0,<4.0",
-  "django-cors-headers>=4.0,<5.0",
-  "djangorestframework>=3.15,<4.0",
-  "gql>=3.0,<4.0",
-  # NOTE: legacy package incompatible with Django 5 / Graphene 3; consider 'channels-graphql-ws'.
-  # "django-channels-graphql-ws>=0.7.4,<0.8.0",
-  "djangorestframework-csv>=2.1.0,<3.0.0",
-  "factory-boy>=3.2.1,<4.0.0",
-  "django-filter>=23.0",
-  "jaconv>=0.4.0",
-  "urllib3>=1.26.20",
-  "ulid-py>=1.1.0",
-  "Django>=5,<6",
+    "channels>=4.3.1",
+    "channels-redis>=4.3.0",
+    "daphne>=4.2.1",
+    "django>=5.2,<5.3",
+    "django-channels-graphql-ws>=0.9.0",
+    "django-filter>=25.1",
+    "djangorestframework>=3.16.0",
+    "djangorestframework-csv>=3.0.0",
+    "djangorestframework-filters",
+    "factory-boy>=3.3.0",
+    "gql>=4,<5",
+    "graphene>=3.4.0",
+    "graphene-django>=3.2.0",
+    "jaconv>=0.3.4",
+    "ulid-py>=1.1.0",
+    "urllib3>=2.0.0",
 ]
 
-#[project.optional-dependencies]
-# Keep this section empty unless you ship user-facing extras.
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-django>=4.9.0",
+    "pytest-cov>=6.0.0",
+    "black>=24.0.0",
+    "ruff>=0.11.0",
+    "mypy>=1.14.0",
+    "django-stubs>=5.1.0",
+    "djangorestframework-stubs>=3.15.0",
+    "PyYAML>=6.0",
+]
+schema = ["drf-spectacular>=0.29.0"]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.26.0",
+    "pymdown-extensions>=10.11.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-section-index>=0.3.0",
+    "mike>=2.0.0",
+]
+all = [
+    "apibase[dev,docs,schema]",
+]
 
 [build-system]
-requires = ["hatchling>=1.0.0"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
-
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.uv.sources]
+django-channels-graphql-ws = { git = "https://github.com/shiftone-ai/DjangoChannelsGraphqlWs", branch = "feature/py312" }
+djangorestframework-filters = { git = "https://github.com/philipn/django-rest-framework-filters.git" }
 
 [tool.ruff]
 line-length = 119
 target-version = "py312"
 exclude = [
+    "migrations",
     ".mypy_cache",
     ".pytest_cache",
     ".tox",
     ".venv",
     "venv",
-    "migrations",
 ]
-
-[tool.ruff.format]
-# Keep defaults (Black-compatible); line-length is set above.
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
-ignore = ["E203"]
+select = ["E4", "E7", "E9", "F", "B", "W", "I", "C4", "UP"]
+ignore = [
+    "D", # Docstringを書かなくてもよいようにする
+    "T201", # 'print()'を使えるようにする
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+    "W191", # indentation contains tabs
+    "B904", # raise ... from ... になっていない場合のエラーを無視
+]
+fixable = ["ALL"]
+unfixable = ["B"]
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "D104", "F403"]
+"**/{tests,docs,tools}/*" = ["E402"]
 "web/costs/reports/__init__.py" = ["F401"]
 
-[tool.ruff.lint.isort]
-known-first-party = ["apibase"]
-combine-as-imports = true
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-line-length = "dynamic"
 
-[dependency-groups]
-dev = [
-    "ruff>=0.12.12",
-    "pytest>=7.0.0,<8.0.0",
-    "django-extensions>=3.2",
-    "pytest-django>=4.8",
-    "PyYAML>=6.0",
+[tool.ruff.lint.isort]
+case-sensitive = true
+split-on-trailing-comma = false
+combine-as-imports = true
+known-first-party = ["apibase"]
+section-order = [
+    "future",
+    "standard-library",
+    "django",
+    "third-party",
+    "first-party",
+    "local-folder",
 ]
+known-third-party = ["fastapi", "pydantic", "starlette"]
+
+[tool.ruff.lint.isort.sections]
+"django" = ["django"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+]
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+ignore_missing_imports = true
+exclude = [
+    "migrations",
+    "tests",
+    "docs",
+    "site",
+]
+
+[tool.django-stubs]
+django_settings_module = "apibase.settings.settings"
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "web.config.settings"
 addopts = "-q -ra"
-testpaths = ["web/tests"]
+testpaths = ["web/tests", "apibase/graphql/tests"]
 python_files = ["test_*.py"]
