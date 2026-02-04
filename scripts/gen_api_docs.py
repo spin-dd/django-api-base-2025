@@ -2,9 +2,6 @@
 mkdocs-gen-files用のAPIドキュメント自動生成スクリプト
 """
 
-import mkdocs_gen_files
-from pathlib import Path
-
 # apibaseのモジュール一覧
 MODULES = [
     "apibase.viewsets",
