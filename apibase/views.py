@@ -5,14 +5,7 @@ from graphene_django import settings, views
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
-
-# graphql-core v3 compatibility
-try:
-    from graphql import print_schema  # graphql-core v3
-except ImportError:
-    from graphql.utils import schema_printer  # graphql-core v2
-
-    print_schema = schema_printer.print_schema
+from graphql import print_schema
 
 
 def _decorate(view):
