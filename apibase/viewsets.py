@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from logging import getLogger
 from pathlib import Path
+from typing import TypeVar
 
 from django.contrib.auth.models import Permission
+from django.db import models as django_models
 from django.http import Http404
 from django.utils.functional import cached_property
 from django.views import static
@@ -11,6 +15,8 @@ from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
 from .settings import apibase_settings
+
+_M = TypeVar("_M", bound=django_models.Model)
 
 # OpenAPI schema support (optional)
 try:
@@ -39,7 +45,7 @@ class ViewSetMixin:
     def permissions(cls):
         return [
             Permission.objects.filter(
-                **dict(zip(("content_type__app_label", "codename"), p.PERM_CODE.split(".")))
+                **dict(zip(("content_type__app_label", "codename"), p.PERM_CODE.split("."), strict=True))
             ).first()
             for p in cls.permission_classes
             if issubclass(p, permissions.Permission) and p.PERM_CODE
@@ -127,7 +133,7 @@ class DownloadMixin:
         return f"{field.field.verbose_name}.{name}{ext}"
 
 
-class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
+class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
     pagination_class = paginations.Pagination
     fields_query = None
 
@@ -196,7 +202,7 @@ class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
     @cached_property
     def label_map(self):
         fields = getattr(self, "_fields", {})
-        return dict((name, f.label) for name, f in fields.items())
+        return {name: f.label for name, f in fields.items()}
 
     def get_renderer_context(self):
         """(override)"""
@@ -216,7 +222,7 @@ class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
         context["header"] = self.request.GET[fields_query].split(",") if fields_query in self.request.GET else None
 
         context["labels"] = (
-            dict((i, self.label_map.get(i, i)) for i in context["header"]) if context["header"] else self.label_map
+            {i: self.label_map.get(i, i) for i in context["header"]} if context["header"] else self.label_map
         )
 
         return context
