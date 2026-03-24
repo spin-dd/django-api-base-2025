@@ -54,6 +54,9 @@ all = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["apibase"]
+
 [tool.uv.sources]
 django-channels-graphql-ws = { git = "https://github.com/shiftone-ai/DjangoChannelsGraphqlWs", branch = "feature/py312" }
 djangorestframework-filters = { git = "https://github.com/philipn/django-rest-framework-filters.git" }
