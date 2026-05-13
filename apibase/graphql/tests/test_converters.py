@@ -7,6 +7,7 @@ primary contract relied on by all ``__in`` / ``__nin`` GraphQL filters in
 downstream projects.
 """
 
+import os
 import subprocess
 import sys
 
@@ -58,17 +59,23 @@ def test_multiple_choice_field_converts_to_list_non_null_string():
 def test_importing_apibase_without_configured_django_does_not_raise():
     """``import apibase`` must remain safe before Django is configured.
 
-    The converter registration is intentionally guarded by a try/except so
-    that REST-only consumers, packaging scripts, and CLI tools can import
-    the package without first calling ``django.setup()``. Run in a child
-    process to guarantee a pristine settings state.
+    The converter registration is intentionally skipped when
+    ``settings.configured`` is False so REST-only consumers, packaging
+    scripts, and CLI tools can import the package without first calling
+    ``django.setup()``. Run in a child process to guarantee a pristine
+    settings state, but preserve the rest of the parent environment
+    (PATH, dynamic loader paths, locale, virtualenv vars) so the test
+    runs reliably across hosts and CI configurations.
     """
+    env = os.environ.copy()
+    env.pop("DJANGO_SETTINGS_MODULE", None)
+    env.pop("DJANGO_CONFIGURATION", None)
     result = subprocess.run(
         [sys.executable, "-c", "import apibase; print(apibase.__version__)"],
         capture_output=True,
         text=True,
         check=False,
-        env={"PATH": __import__("os").environ.get("PATH", "")},
+        env=env,
     )
     assert result.returncode == 0, (
         f"`import apibase` failed without Django settings configured:\n"

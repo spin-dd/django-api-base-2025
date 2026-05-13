@@ -4,16 +4,17 @@ __version__ = "0.3.0"
 # using ListCharField / ListIntegerField surface the correct GraphQL types
 # (``[String!]`` / ``[Int!]``) instead of falling back to ``String``.
 #
-# Registration is guarded because ``apibase.graphql.converters`` imports
-# ``graphene_django``, which reads Django settings at its own import time.
-# REST-only consumers, packaging scripts, and CLI tools that import
-# ``apibase`` before Django is configured must not crash; in those cases the
-# import is deferred and will run later when something explicitly imports
-# ``apibase.graphql`` (e.g., during URL / schema resolution after Django
-# setup has completed).
-from django.core.exceptions import ImproperlyConfigured  # noqa: E402
+# Only attempt the import when Django settings have been configured.
+# ``apibase.graphql.converters`` imports ``graphene_django``, which reads
+# Django settings at its own import time. REST-only consumers, packaging
+# scripts, and CLI tools that touch ``apibase`` before ``django.setup()``
+# would otherwise crash; in that case registration is deferred and runs
+# when something explicitly imports ``apibase.graphql`` later (e.g., during
+# URL / schema resolution after Django has been set up). Using
+# ``settings.configured`` here -- rather than ``try / except
+# ImproperlyConfigured`` -- avoids silently swallowing real misconfiguration
+# such as an invalid ``DJANGO_SETTINGS_MODULE``.
+from django.conf import settings  # noqa: E402
 
-try:
+if settings.configured:
     from . import graphql  # noqa: F401, E402
-except ImproperlyConfigured:
-    pass
