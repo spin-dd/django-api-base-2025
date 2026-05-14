@@ -23,7 +23,13 @@ if not settings.configured:
         INSTALLED_APPS=[
             "django.contrib.contenttypes",
             "django.contrib.auth",
+            "tests",
         ],
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
+        # No migrations for the tests app — create tables directly from
+        # model definitions via `migrate --run-syncdb` semantics. Keeps the
+        # test fixture lightweight and avoids shipping migration files for
+        # throwaway test models.
+        MIGRATION_MODULES={"tests": None},
     )
     django.setup()

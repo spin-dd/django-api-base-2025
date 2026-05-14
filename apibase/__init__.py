@@ -1,4 +1,4 @@
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # Eagerly trigger GraphQL form-field converter registration so that filters
 # using ListCharField / ListIntegerField surface the correct GraphQL types
