@@ -98,6 +98,89 @@ class DisplayField(fields.Field):
         return str(instance)
 
 
+class NestedOrphanDeleteMixin:
+    """Opt-in mixin for ``BaseModelSerializer`` adding orphan-delete semantics.
+
+    For every field listed in :attr:`nested_fields_orphan_delete` (which must
+    also be in :attr:`BaseModelSerializer.nested_fields`), existing nested
+    children that are *not* present in the payload are deleted after the
+    upsert pass performed by :meth:`BaseModelSerializer.update_nested`.
+
+    Behaviour matrix:
+
+    ============================= ===========================================
+    payload state                 action on existing children
+    ============================= ===========================================
+    field absent from payload     no deletion (PATCH partial preserved)
+    field present, empty list     delete all
+    field present, list of items  upsert listed, delete unlisted
+    POST (no parent instance yet) no-op (all rows are freshly created)
+    ============================= ===========================================
+
+    Supports reverse-FK and ``GenericRelation`` targets. ``OneToOneRel`` fields
+    raise ``NotImplementedError`` — orphan-delete for a 0-or-1 relation has
+    ambiguous semantics and is intentionally out of scope.
+
+    Place the mixin **before** ``BaseModelSerializer`` in the MRO::
+
+        class MySerializer(NestedOrphanDeleteMixin, BaseModelSerializer):
+            children = ChildSerializer(many=True)
+            nested_fields = ["children"]
+            nested_fields_orphan_delete = ["children"]
+    """
+
+    nested_fields_orphan_delete: list[str] = []
+
+    def update_nested_field(self, field_name, instance, validated_data, children):
+        applies = field_name in self.nested_fields_orphan_delete and instance is not None
+
+        if applies:
+            # Resolve the related field early so OneToOneRel fails loud before
+            # super() mutates the database.
+            related_field = self._resolve_nested_related_field(field_name)
+            if isinstance(related_field, OneToOneRel):
+                raise NotImplementedError("NestedOrphanDeleteMixin does not yet support OneToOneRel fields")
+
+        items = super().update_nested_field(field_name, instance, validated_data, children)
+
+        if not applies:
+            return items
+        if not self._field_explicitly_present_in_payload(field_name):
+            return items
+
+        kept_ids = {item.id for item in (items or []) if item is not None and getattr(item, "id", None) is not None}
+        manager = getattr(instance, field_name)
+        manager.exclude(id__in=kept_ids).delete()
+        return items
+
+    def _resolve_nested_related_field(self, field_name):
+        """Return the Django field/rel backing ``field_name``.
+
+        Mirrors the resolution :meth:`BaseModelSerializer.update_nested`
+        performs (strip a trailing ``_set`` and look up by relation name).
+        """
+        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
+        return self.Meta.model._meta.get_field(name)
+
+    def _field_explicitly_present_in_payload(self, field_name):
+        """Distinguish "field omitted from payload" from "field sent empty".
+
+        :meth:`BaseModelSerializer.run_validation` records the children set
+        in two shapes:
+
+        * dict path: every ``nested_fields`` key is present with ``None`` when
+          the payload did not include it. We treat ``None`` as "absent".
+        * QueryDict path: only keys present in the request body are added.
+          Missing keys are absent from the QueryDict.
+        """
+        children_set = getattr(self, "_children_set", None)
+        if children_set is None:
+            return False
+        if hasattr(children_set, "getlist"):
+            return field_name in children_set
+        return children_set.get(field_name) is not None
+
+
 class BaseModelSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
     endpoint = EndpointField()
