@@ -99,12 +99,12 @@ class DisplayField(fields.Field):
 
 
 class NestedOrphanDeleteMixin:
-    """Opt-in mixin for ``BaseModelSerializer`` adding orphan-delete semantics.
+    """Opt-in mixin for `BaseModelSerializer` adding orphan-delete semantics.
 
-    For every field listed in :attr:`nested_fields_orphan_delete` (which must
-    also be in :attr:`BaseModelSerializer.nested_fields`), existing nested
-    children that are *not* present in the payload are deleted after the
-    upsert pass performed by :meth:`BaseModelSerializer.update_nested`.
+    For every field listed in `nested_fields_orphan_delete` (which must also
+    be in `BaseModelSerializer.nested_fields`), existing nested children that
+    are *not* present in the payload are deleted after the upsert pass
+    performed by `BaseModelSerializer.update_nested`.
 
     Behaviour matrix:
 
@@ -117,11 +117,11 @@ class NestedOrphanDeleteMixin:
     POST (no parent instance yet) no-op (all rows are freshly created)
     ============================= ===========================================
 
-    Supports reverse-FK and ``GenericRelation`` targets. ``OneToOneRel`` fields
-    raise ``NotImplementedError`` — orphan-delete for a 0-or-1 relation has
+    Supports reverse-FK and `GenericRelation` targets. `OneToOneRel` fields
+    raise `NotImplementedError` — orphan-delete for a 0-or-1 relation has
     ambiguous semantics and is intentionally out of scope.
 
-    Place the mixin **before** ``BaseModelSerializer`` in the MRO::
+    Place the mixin **before** `BaseModelSerializer` in the MRO::
 
         class MySerializer(NestedOrphanDeleteMixin, BaseModelSerializer):
             children = ChildSerializer(many=True)
@@ -154,10 +154,10 @@ class NestedOrphanDeleteMixin:
         return items
 
     def _resolve_nested_related_field(self, field_name):
-        """Return the Django field/rel backing ``field_name``.
+        """Return the Django field/rel backing `field_name`.
 
-        Mirrors the resolution :meth:`BaseModelSerializer.update_nested`
-        performs (strip a trailing ``_set`` and look up by relation name).
+        Mirrors the resolution `BaseModelSerializer.update_nested` performs
+        (strip a trailing `_set` and look up by relation name).
         """
         name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
         return self.Meta.model._meta.get_field(name)
@@ -165,11 +165,11 @@ class NestedOrphanDeleteMixin:
     def _field_explicitly_present_in_payload(self, field_name):
         """Distinguish "field omitted from payload" from "field sent empty".
 
-        :meth:`BaseModelSerializer.run_validation` records the children set
-        in two shapes:
+        `BaseModelSerializer.run_validation` records the children set in two
+        shapes:
 
-        * dict path: every ``nested_fields`` key is present with ``None`` when
-          the payload did not include it. We treat ``None`` as "absent".
+        * dict path: every `nested_fields` key is present with `None` when
+          the payload did not include it. We treat `None` as "absent".
         * QueryDict path: only keys present in the request body are added.
           Missing keys are absent from the QueryDict.
         """
