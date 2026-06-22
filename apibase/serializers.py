@@ -204,11 +204,13 @@ class BaseModelSerializer(serializers.ModelSerializer):
         action = self._get_action(self.view_action)
         action and action.validate()
 
-    def _save_for_action(self):
+    def _save_for_action(self, **kwargs):
         action = self._get_action(self.view_action)
         if action:
             return action.save(super())
-        return super().save()
+        # Honor DRF's `serializer.save(**extra)` contract: forward extra
+        # attributes (e.g. perform_create defaults) into the saved instance.
+        return super().save(**kwargs)
 
     def is_valid(self, raise_exception=False):
         """(override)"""
