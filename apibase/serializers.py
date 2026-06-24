@@ -11,34 +11,12 @@ from django.urls import reverse
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
-from .urn import model_urn, rest_endpoint_from_urn
-
-# OpenAPI schema support (optional)
-try:
-    from drf_spectacular.types import OpenApiTypes
-    from drf_spectacular.utils import extend_schema_field
-
-    HAS_DRF_SPECTACULAR = True
-except ImportError:
-    HAS_DRF_SPECTACULAR = False
-
-    def extend_schema_field(*args, **kwargs):
-        def decorator(cls):
-            return cls
-
-        return decorator
-
-    class OpenApiTypes:
-        URI = None
-        STR = None
+from ._spectacular import OpenApiTypes, extend_schema_field
+from .urn import model_urn
 
 
 def to_urn(instance, nss=None, nid=None):
     return model_urn(instance, nss=nss, nid=nid)
-
-
-def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=None):
-    return rest_endpoint_from_urn(urn, domain=domain, nid=nid, prefix=prefix, request=request)
 
 
 def drf_endpoint(instance, url_name=None, pk_name="pk"):
@@ -194,7 +172,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)
-        self._actions = dict((k, v(self)) for k, v in self.action_handlers.items())
+        self._actions = {k: v(self) for k, v in self.action_handlers.items()}
 
     def _get_action(self, name):
         action = self._actions.get(name, None) or self._actions.get("*", None)
@@ -257,7 +235,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
         if self.nested_fields:
             if isinstance(data, QueryDict):
                 return self.run_validation_querydict(data=data)
-            self._children_set = dict((i, data.pop(i, None)) for i in self.nested_fields)
+            self._children_set = {i: data.pop(i, None) for i in self.nested_fields}
 
         return super().run_validation(data=data)
 
@@ -324,7 +302,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def validated_children_set(self, validated_data):
         children_set = getattr(self, "_children_set", [])
-        children_set = children_set or dict((i, validated_data.pop(i, [])) for i in self.nested_fields)
+        children_set = children_set or {i: validated_data.pop(i, []) for i in self.nested_fields}
         return children_set
 
     def update(self, instance, validated_data):
@@ -356,7 +334,8 @@ class BatchSerializerMixin:
     def to_internal_value(self, data):
         ret = super().to_internal_value(data)
         id_attr = getattr(self.Meta, "update_lookup_field", "id")
-        request_method = getattr(getattr(self.context.get("view"), "request"), "method", "")
+        request = self.context.get("view").request
+        request_method = getattr(request, "method", "")
 
         if all(
             (

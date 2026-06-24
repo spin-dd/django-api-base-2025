@@ -14,27 +14,10 @@ from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
+from ._spectacular import OpenApiParameter, OpenApiTypes, extend_schema
 from .settings import apibase_settings
 
 _M = TypeVar("_M", bound=django_models.Model)
-
-# OpenAPI schema support (optional)
-try:
-    from drf_spectacular.types import OpenApiTypes
-    from drf_spectacular.utils import OpenApiParameter, extend_schema
-except ImportError:
-
-    def extend_schema(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    class OpenApiParameter:
-        PATH = "path"
-
-    class OpenApiTypes:
-        STR = None
 
 
 logger = getLogger()
