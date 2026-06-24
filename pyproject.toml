@@ -144,3 +144,8 @@ exclude = [
 
 [tool.django-stubs]
 django_settings_module = "apibase.settings.settings"
+
+[tool.pytest.ini_options]
+# Activates pytest-django so it manages the test database (creates tables for
+# the `tests` app via run-syncdb) and registers the `django_db` marker.
+DJANGO_SETTINGS_MODULE = "tests.settings"

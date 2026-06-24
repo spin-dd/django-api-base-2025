@@ -30,7 +30,8 @@ def import_from_string(val, setting_name):
 class Settings:
     """base DRF APISettings"""
 
-    def __init__(self, user_settings=None, defaults=None, import_strings=None):
+    def __init__(self, user_settings=None, defaults=None, import_strings=None, name=None):
+        self.name = name
         self.user_settings = user_settings or {}
         self.defaults = defaults or {}
         self.import_strings = import_strings or {}
@@ -57,10 +58,24 @@ class Settings:
         setattr(self, attr, val)
         return val
 
+    def reload(self):
+        """Drop cached values and re-read user settings from Django settings.
+
+        Lets ``override_settings(<name>={...})`` take effect: the bound
+        ``setting_changed`` receiver calls this so the next attribute access
+        re-resolves against the current Django settings.
+        """
+        for attr in self._cached_attrs:
+            delattr(self, attr)
+        self._cached_attrs.clear()
+        if self.name is not None:
+            self.user_settings = getattr(dj_settings, self.name, None) or {}
+
     @classmethod
     def create(cls, name, default_tuple):
         return cls(
             getattr(dj_settings, name, None),
             dict((i[0], i[1][1]) for i in default_tuple),
             [i[0] for i in default_tuple if i[1][0]],
+            name=name,
         )
