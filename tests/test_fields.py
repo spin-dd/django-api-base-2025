@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from django.core.exceptions import ValidationError
+
 import pytest
 
 from apibase.fields import CharRangeWidget, ListCharField, ListIntegerField, MonthRangeField
@@ -21,11 +23,10 @@ def test_list_char_field_empty_input_returns_empty_list():
 
 
 def test_list_char_field_rejects_non_sequence():
-    # LATENT BUG (characterized): the non-sequence branch tries to raise
-    # ValidationError(self.error_messages["invalid_list"]), but "invalid_list"
-    # was never added to error_messages, so it raises KeyError instead of a
-    # clean ValidationError. Pinned here until the message key is added.
-    with pytest.raises(KeyError):
+    # Non-sequence input is rejected with a clean ValidationError carrying the
+    # "invalid_list" message (defined via ListFieldMixin.default_error_messages),
+    # rather than leaking a KeyError on a missing message key.
+    with pytest.raises(ValidationError):
         ListCharField().to_python("not-a-list")
 
 
@@ -43,9 +44,9 @@ def test_list_integer_field_empty_input_returns_empty_list():
 
 
 def test_list_integer_field_rejects_non_sequence():
-    # Same latent bug as ListCharField (see note above): raises KeyError
-    # rather than a clean ValidationError for non-sequence input.
-    with pytest.raises(KeyError):
+    # Like ListCharField, non-sequence input yields a clean ValidationError
+    # (the "invalid_list" message) instead of a KeyError.
+    with pytest.raises(ValidationError):
         ListIntegerField().to_python("12")
 
 
