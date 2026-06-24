@@ -12,10 +12,15 @@ from rest_framework.fields import empty
 
 from . import identity
 from ._spectacular import OpenApiTypes, extend_schema_field
+from .urn import rest_endpoint_from_urn
 
 
 def to_urn(instance, nss=None, nid=None):
     return identity.urn(instance, nss=nss, nid=nid)
+
+
+def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=None):
+    return rest_endpoint_from_urn(urn, domain=domain, nid=nid, prefix=prefix, request=request)
 
 
 def drf_endpoint(instance, url_name=None, pk_name="pk"):
