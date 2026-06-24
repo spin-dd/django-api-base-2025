@@ -29,6 +29,17 @@ def _parent_with_endpoint(pk=7):
     return parent
 
 
+def test_identity_module_exposes_transport_neutral_calculations():
+    from apibase import identity
+
+    parent = _parent_with_endpoint()
+
+    assert identity.endpoint(parent) == "/parents/7/"
+    assert identity.endpoint(_parent()) == ""
+    assert identity.urn(parent) == "urn:x-nid:self:tests:parent:7"
+    assert identity.display(parent) == "Parent object (7)"
+
+
 def test_rest_identity_fields_preserve_relative_output_without_request():
     parent = _parent_with_endpoint()
 

@@ -6,29 +6,21 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
-from django.urls import reverse
 
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
+from . import identity
 from ._spectacular import OpenApiTypes, extend_schema_field
-from .urn import model_urn
 
 
 def to_urn(instance, nss=None, nid=None):
-    return model_urn(instance, nss=nss, nid=nid)
+    return identity.urn(instance, nss=nss, nid=nid)
 
 
 def drf_endpoint(instance, url_name=None, pk_name="pk"):
     """DRF endpoint"""
-    try:
-        if hasattr(instance, "get_endpoint_url"):
-            return instance.get_endpoint_url()
-        name = url_name or f"api-{instance._meta.app_label}-{instance._meta.model_name}-detail"
-        return reverse(name, kwargs={pk_name: instance.pk})
-    except Exception:
-        pass
-    return ""
+    return identity.endpoint(instance, url_name=url_name, pk_name=pk_name)
 
 
 @extend_schema_field(OpenApiTypes.URI)
@@ -73,7 +65,7 @@ class DisplayField(fields.Field):
 
     def to_representation(self, value):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
-        return str(instance)
+        return identity.display(instance)
 
 
 class NestedOrphanDeleteMixin:
@@ -130,15 +122,6 @@ class NestedOrphanDeleteMixin:
         manager = getattr(instance, field_name)
         manager.exclude(id__in=kept_ids).delete()
         return items
-
-    def _resolve_nested_related_field(self, field_name):
-        """Return the Django field/rel backing `field_name`.
-
-        Mirrors the resolution `BaseModelSerializer.update_nested` performs
-        (strip a trailing `_set` and look up by relation name).
-        """
-        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
-        return self.Meta.model._meta.get_field(name)
 
     def _field_explicitly_present_in_payload(self, field_name):
         """Distinguish "field omitted from payload" from "field sent empty".
@@ -250,12 +233,15 @@ class BaseModelSerializer(serializers.ModelSerializer):
     def patch_children(self, instance, field_name, data):
         return data
 
+    def _resolve_nested_related_field(self, field_name):
+        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
+        return self.Meta.model._meta.get_field(name)
+
     def update_nested(self, instance, validated_data, field_name, children):
         if not children or not instance:
             return []
 
-        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
-        related_field = self.Meta.model._meta.get_field(name)
+        related_field = self._resolve_nested_related_field(field_name)
         remote_field_name = related_field.remote_field.name
 
         if isinstance(related_field, OneToOneRel):

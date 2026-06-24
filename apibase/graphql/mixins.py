@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 import graphene.relay
 from graphene.types import generic
 
-from .. import serializers
+from .. import identity
 from .encoders import JSONEncode
 
 
@@ -21,16 +21,16 @@ class NodeMixin:
         return self.pk
 
     def resolve_endpoint(self, info):
-        path = serializers.drf_endpoint(self)
+        path = identity.endpoint(self)
         if hasattr(info.context, "build_absolute_uri"):
             return info.context.build_absolute_uri(path)
         return path
 
     def resolve_urn(self, info):
-        return serializers.to_urn(self)
+        return identity.urn(self)
 
     def resolve_display(self, info):
-        return str(self)
+        return identity.display(self)
 
     @classmethod
     def get_node(cls, info, id):
