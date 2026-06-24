@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from django.urls import NoReverseMatch, reverse
 
 from .urn import model_urn
+
+_Fallback = TypeVar("_Fallback")
+
+
+class AbsoluteUriBuilder(Protocol):
+    def build_absolute_uri(self, location: str | None = None) -> str: ...
 
 
 def urn(instance: Any, nss: str | None = None, nid: str | None = None) -> str:
@@ -25,3 +31,14 @@ def endpoint(instance: Any, url_name: str | None = None, pk_name: str = "pk") ->
 
 def display(instance: Any) -> str:
     return str(instance)
+
+
+def absolute_uri(
+    path: str | None,
+    *,
+    builder: AbsoluteUriBuilder | None,
+    fallback: _Fallback,
+) -> str | _Fallback:
+    if builder is not None:
+        return builder.build_absolute_uri(path)
+    return fallback

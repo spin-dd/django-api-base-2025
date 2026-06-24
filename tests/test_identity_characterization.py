@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from apibase import urls
 from apibase.graphql.mixins import NodeMixin
 from apibase.serializers import BaseModelSerializer
 from tests.models import Parent
@@ -77,3 +78,20 @@ def test_endpoint_fallback_differs_between_rest_and_graphql_when_reverse_fails()
 
     assert _ParentIdentitySerializer(parent).data["endpoint"] is None
     assert NodeMixin.resolve_endpoint(parent, info) == ""
+
+
+def test_endpoint_empty_path_preserves_transport_specific_builder_behavior():
+    parent = _parent()
+    request = _RequestBuilder("https://api.example.test")
+    info = SimpleNamespace(context=request)
+
+    assert _ParentIdentitySerializer(parent, context={"request": request}).data["endpoint"] is None
+    assert NodeMixin.resolve_endpoint(parent, info) == "https://api.example.test"
+
+
+def test_url_absolute_path_preserves_request_and_site_fallback(monkeypatch):
+    request = _RequestBuilder("https://api.example.test")
+    monkeypatch.setattr(urls, "get_current_site", lambda request: SimpleNamespace(domain="site.example.test"))
+
+    assert urls.absolute_path("/parents/7/", request=request) == "https://api.example.test/parents/7/"
+    assert urls.absolute_path("/parents/7/") == "https://site.example.test/parents/7/"

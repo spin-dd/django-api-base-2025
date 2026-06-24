@@ -22,9 +22,8 @@ class NodeMixin:
 
     def resolve_endpoint(self, info):
         path = identity.endpoint(self)
-        if hasattr(info.context, "build_absolute_uri"):
-            return info.context.build_absolute_uri(path)
-        return path
+        builder = info.context if hasattr(info.context, "build_absolute_uri") else None
+        return identity.absolute_uri(path, builder=builder, fallback=path)
 
     def resolve_urn(self, info):
         return identity.urn(self)

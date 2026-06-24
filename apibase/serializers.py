@@ -39,7 +39,8 @@ class EndpointField(fields.Field):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
         url = drf_endpoint(instance, url_name=self.get_url_name(value))
         request = self.context.get("request", None)
-        return (request and url) and request.build_absolute_uri(url) or url or None
+        builder = request if request and url else None
+        return identity.absolute_uri(url, builder=builder, fallback=url or None)
 
 
 @extend_schema_field(OpenApiTypes.STR)
