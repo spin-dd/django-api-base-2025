@@ -16,12 +16,8 @@ Also verifies:
 
 import pytest
 
-from rest_framework import serializers
-
 from apibase.serializers import BaseModelSerializer, NestedOrphanDeleteMixin
-
 from tests.models import Child, OtherChild, Parent, Profile
-
 
 pytestmark = pytest.mark.django_db
 
