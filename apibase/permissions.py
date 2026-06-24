@@ -28,14 +28,13 @@ def is_safe_method(request: Any) -> bool:
 
 
 def can(user: Any, perm: str | None, *, method: str | None = None, private: bool = True) -> bool:
-    has_perm = getattr(user, "has_perm", None)
-    if callable(has_perm) and has_perm(perm):
-        return True
-    if getattr(user, "is_staff", False):
-        return True
+    # `is_staff` is admin-site access, NOT an authorization level: a plain staff
+    # user has no special permissions. Superusers are granted automatically by
+    # Django's `user.has_perm()`, so no explicit bypass is needed here.
     if not private and is_safe_method(method):
         return True
-    return False
+    has_perm = getattr(user, "has_perm", None)
+    return bool(callable(has_perm) and has_perm(perm))
 
 
 class Permission(permissions.IsAuthenticated):
