@@ -1,26 +1,40 @@
+from __future__ import annotations
+
 from functools import wraps
 from logging import getLogger
+from typing import Any
 
 from rest_framework import permissions
 
 logger = getLogger(__name__)
 
 
-def has_perms(func, permission, *args, **kwargs):
-    def wrapper(func):
-        @wraps(func)
-        def wrapped(self, info, *func_args, **func_kwargs):
-            if not info.context.user.has_perm(permission):
+def has_perms(func: Any, permission: str | None, *args: Any, **kwargs: Any) -> Any:
+    def wrapper(resolver: Any) -> Any:
+        @wraps(resolver)
+        def wrapped(self: Any, info: Any, *func_args: Any, **func_kwargs: Any) -> Any:
+            if not can(info.context.user, permission, method=None, private=True):
                 return None
-            return func(self, info, *func_args, **func_kwargs)
+            return resolver(self, info, *func_args, **func_kwargs)
 
         return wrapped
 
     return wrapper
 
 
-def is_safe_method(request):
-    return request.method in permissions.SAFE_METHODS
+def is_safe_method(request: Any) -> bool:
+    method = getattr(request, "method", request)
+    return method in permissions.SAFE_METHODS
+
+
+def can(user: Any, perm: str | None, *, method: str | None = None, private: bool = True) -> bool:
+    # `is_staff` is admin-site access, NOT an authorization level: a plain staff
+    # user has no special permissions. Superusers are granted automatically by
+    # Django's `user.has_perm()`, so no explicit bypass is needed here.
+    if not private and is_safe_method(method):
+        return True
+    has_perm = getattr(user, "has_perm", None)
+    return bool(callable(has_perm) and has_perm(perm))
 
 
 class Permission(permissions.IsAuthenticated):
@@ -28,9 +42,9 @@ class Permission(permissions.IsAuthenticated):
     PRIVATE = True
 
     @classmethod
-    def has(cls, func):
+    def has(cls, func: Any) -> Any:
         @wraps(func)
-        def wrapped(self, info, *func_args, **func_kwargs):
+        def wrapped(self: Any, info: Any, *func_args: Any, **func_kwargs: Any) -> Any:
             if not cls.check_info(info, *func_args, **func_kwargs):
                 return None
             return func(self, info, *func_args, **func_kwargs)
@@ -38,22 +52,18 @@ class Permission(permissions.IsAuthenticated):
         return wrapped
 
     @classmethod
-    def check_info(cls, info, *args, **kwargs):
-        return info.context.user.has_perm(cls.PERM_CODE)
+    def check_info(cls, info: Any, *args: Any, **kwargs: Any) -> bool:
+        return can(info.context.user, cls.PERM_CODE, method=None, private=cls.PRIVATE)
 
-    def has_permission(self, request, view):
+    def has_permission(self, request: Any, view: Any) -> bool:
         if not request.user:
             return False
-        isvalid = False if self.PRIVATE else (request.method in permissions.SAFE_METHODS)
-        isvalid = isvalid or request.user.has_perm(self.PERM_CODE)
+        isvalid = can(request.user, self.PERM_CODE, method=request.method, private=self.PRIVATE)
         if not isvalid:
             logger.info(f"{request.user} has not {self.PERM_CODE}")
         return isvalid
 
-    def has_query_permission(self, queryset, info, permcode=None):
+    def has_query_permission(self, queryset: Any, info: Any, permcode: str | None = None) -> bool:
         """check for graphql query"""
         permcode = permcode or self.PERM_CODE
-        user = info.context.user
-        if not self.PRIVATE or user.is_staff or user.has_perm(permcode):
-            return True
-        return False
+        return can(info.context.user, permcode, method="GET", private=self.PRIVATE)

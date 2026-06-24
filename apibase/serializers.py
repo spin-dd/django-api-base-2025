@@ -6,35 +6,17 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
-from django.urls import reverse
 
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
-from .urn import model_urn, rest_endpoint_from_urn
-
-# OpenAPI schema support (optional)
-try:
-    from drf_spectacular.types import OpenApiTypes
-    from drf_spectacular.utils import extend_schema_field
-
-    HAS_DRF_SPECTACULAR = True
-except ImportError:
-    HAS_DRF_SPECTACULAR = False
-
-    def extend_schema_field(*args, **kwargs):
-        def decorator(cls):
-            return cls
-
-        return decorator
-
-    class OpenApiTypes:
-        URI = None
-        STR = None
+from . import identity
+from ._spectacular import OpenApiTypes, extend_schema_field
+from .urn import rest_endpoint_from_urn
 
 
 def to_urn(instance, nss=None, nid=None):
-    return model_urn(instance, nss=nss, nid=nid)
+    return identity.urn(instance, nss=nss, nid=nid)
 
 
 def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=None):
@@ -43,14 +25,7 @@ def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=No
 
 def drf_endpoint(instance, url_name=None, pk_name="pk"):
     """DRF endpoint"""
-    try:
-        if hasattr(instance, "get_endpoint_url"):
-            return instance.get_endpoint_url()
-        name = url_name or f"api-{instance._meta.app_label}-{instance._meta.model_name}-detail"
-        return reverse(name, kwargs={pk_name: instance.pk})
-    except Exception:
-        pass
-    return ""
+    return identity.endpoint(instance, url_name=url_name, pk_name=pk_name)
 
 
 @extend_schema_field(OpenApiTypes.URI)
@@ -69,7 +44,8 @@ class EndpointField(fields.Field):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
         url = drf_endpoint(instance, url_name=self.get_url_name(value))
         request = self.context.get("request", None)
-        return (request and url) and request.build_absolute_uri(url) or url or None
+        builder = request if request and url else None
+        return identity.absolute_uri(url, builder=builder, fallback=url or None)
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -95,7 +71,7 @@ class DisplayField(fields.Field):
 
     def to_representation(self, value):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
-        return str(instance)
+        return identity.display(instance)
 
 
 class NestedOrphanDeleteMixin:
@@ -153,15 +129,6 @@ class NestedOrphanDeleteMixin:
         manager.exclude(id__in=kept_ids).delete()
         return items
 
-    def _resolve_nested_related_field(self, field_name):
-        """Return the Django field/rel backing `field_name`.
-
-        Mirrors the resolution `BaseModelSerializer.update_nested` performs
-        (strip a trailing `_set` and look up by relation name).
-        """
-        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
-        return self.Meta.model._meta.get_field(name)
-
     def _field_explicitly_present_in_payload(self, field_name):
         """Distinguish "field omitted from payload" from "field sent empty".
 
@@ -194,7 +161,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)
-        self._actions = dict((k, v(self)) for k, v in self.action_handlers.items())
+        self._actions = {k: v(self) for k, v in self.action_handlers.items()}
 
     def _get_action(self, name):
         action = self._actions.get(name, None) or self._actions.get("*", None)
@@ -257,7 +224,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
         if self.nested_fields:
             if isinstance(data, QueryDict):
                 return self.run_validation_querydict(data=data)
-            self._children_set = dict((i, data.pop(i, None)) for i in self.nested_fields)
+            self._children_set = {i: data.pop(i, None) for i in self.nested_fields}
 
         return super().run_validation(data=data)
 
@@ -272,12 +239,15 @@ class BaseModelSerializer(serializers.ModelSerializer):
     def patch_children(self, instance, field_name, data):
         return data
 
+    def _resolve_nested_related_field(self, field_name):
+        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
+        return self.Meta.model._meta.get_field(name)
+
     def update_nested(self, instance, validated_data, field_name, children):
         if not children or not instance:
             return []
 
-        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
-        related_field = self.Meta.model._meta.get_field(name)
+        related_field = self._resolve_nested_related_field(field_name)
         remote_field_name = related_field.remote_field.name
 
         if isinstance(related_field, OneToOneRel):
@@ -324,7 +294,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def validated_children_set(self, validated_data):
         children_set = getattr(self, "_children_set", [])
-        children_set = children_set or dict((i, validated_data.pop(i, [])) for i in self.nested_fields)
+        children_set = children_set or {i: validated_data.pop(i, []) for i in self.nested_fields}
         return children_set
 
     def update(self, instance, validated_data):
@@ -356,7 +326,8 @@ class BatchSerializerMixin:
     def to_internal_value(self, data):
         ret = super().to_internal_value(data)
         id_attr = getattr(self.Meta, "update_lookup_field", "id")
-        request_method = getattr(getattr(self.context.get("view"), "request"), "method", "")
+        request = self.context.get("view").request
+        request_method = getattr(request, "method", "")
 
         if all(
             (

@@ -21,7 +21,7 @@ def parse_urn(urn, prefix="urn", nid=None):
     prefix, *ma = re.findall(r"([^:]+)", urn)
     if prefix == prefix and len(ma) >= len(URN_ELEMENTS):
         nid = nid or apibase_settings.URN_NID
-        res = dict(others=ma[len(URN_ELEMENTS) :], **dict(zip(URN_ELEMENTS, ma)))
+        res = dict(others=ma[len(URN_ELEMENTS) :], **dict(zip(URN_ELEMENTS, ma, strict=False)))
         if res["nid"] == nid:
             return res
 

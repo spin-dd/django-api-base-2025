@@ -14,27 +14,10 @@ from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
+from ._spectacular import OpenApiParameter, OpenApiTypes, extend_schema
 from .settings import apibase_settings
 
 _M = TypeVar("_M", bound=django_models.Model)
-
-# OpenAPI schema support (optional)
-try:
-    from drf_spectacular.types import OpenApiTypes
-    from drf_spectacular.utils import OpenApiParameter, extend_schema
-except ImportError:
-
-    def extend_schema(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    class OpenApiParameter:
-        PATH = "path"
-
-    class OpenApiTypes:
-        STR = None
 
 
 logger = getLogger()
@@ -79,7 +62,7 @@ class DownloadMixin:
     def download_filefield(self, request, pk, format=None, field=None):
         """download FileField file"""
         instance = self.get_object()
-        return self.response_field_data(request, instance, field)
+        return self.response_field_data(request, instance, field, format=format)
 
     @extend_schema(
         parameters=[
@@ -106,9 +89,9 @@ class DownloadMixin:
     def download_filefield_storage(self, request, field=None, name=None, format=None):
         path = f"{name}.{format}" if format else name
         instance = storages.LocalPathResolver.find(self.queryset.model, field, path)
-        return self.response_field_data(request, instance, field)
+        return self.response_field_data(request, instance, field, format=format)
 
-    def response_field_data(self, request, instance, field):
+    def response_field_data(self, request, instance, field, format=None):
         try:
             field = getattr(instance, field, None)
             disposition = utils.to_content_disposition(self.get_download_filefield_name(instance, field))
