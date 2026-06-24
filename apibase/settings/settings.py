@@ -23,7 +23,7 @@ def import_from_string(val, setting_name):
     try:
         return import_string(val)
     except ImportError as e:
-        msg = f"Could not import '{val}' for API setting '{setting_name}'. {e.__class__.__name__}: {e}."
+        msg = f"Could not import '{val!s}' for API setting '{setting_name!s}'. {e.__class__.__name__}: {e!s}."
         raise ImportError(msg)
 
 
@@ -39,7 +39,7 @@ class Settings:
 
     def __getattr__(self, attr):
         if attr not in self.defaults:
-            raise AttributeError(f"Invalid API setting: '{attr}'")
+            raise AttributeError(f"Invalid API setting: '{attr!s}'")
 
         val = self.user_settings.get(attr, None)
         val_default = self.defaults.get(attr, None)

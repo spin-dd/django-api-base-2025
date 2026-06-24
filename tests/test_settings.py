@@ -28,6 +28,20 @@ def test_unknown_attribute_raises_attribute_error():
         _ = apibase_settings.DOES_NOT_EXIST
 
 
+def test_import_error_message_uses_str_not_format():
+    from apibase.settings.settings import import_from_string
+
+    class _WeirdStr(str):
+        def __format__(self, spec):
+            return "FORMATTED"
+
+    with pytest.raises(ImportError) as exc:
+        import_from_string(_WeirdStr("does.not.exist.Thing"), "SOME_SETTING")
+    msg = str(exc.value)
+    assert "does.not.exist.Thing" in msg
+    assert "FORMATTED" not in msg
+
+
 # ---------------------------------------------------------------------------
 # SET-001 override_settings(APIBASE=...) is honoured via a setting_changed reload
 # ---------------------------------------------------------------------------
