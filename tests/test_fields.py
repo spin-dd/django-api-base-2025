@@ -30,6 +30,14 @@ def test_list_char_field_rejects_non_sequence():
         ListCharField().to_python("not-a-list")
 
 
+@pytest.mark.parametrize("value", [0, False], ids=["zero", "false"])
+def test_list_char_field_rejects_falsy_scalar(value):
+    # A falsy scalar like 0/False is NOT an empty value; only explicit-empty
+    # values (None, '', [], (), {}) map to []. Everything else non-list/tuple raises.
+    with pytest.raises(ValidationError):
+        ListCharField().to_python(value)
+
+
 # ---------------------------------------------------------------------------
 # FRM-002 ListIntegerField
 # ---------------------------------------------------------------------------
@@ -48,6 +56,13 @@ def test_list_integer_field_rejects_non_sequence():
     # (the "invalid_list" message) instead of a KeyError.
     with pytest.raises(ValidationError):
         ListIntegerField().to_python("12")
+
+
+def test_list_integer_field_wraps_converter_failure_as_validation_error():
+    # A list item that cannot be converted (int("x") raises ValueError) must be
+    # surfaced as a clean ValidationError, not a leaked ValueError.
+    with pytest.raises(ValidationError):
+        ListIntegerField().to_python(["x"])
 
 
 # ---------------------------------------------------------------------------

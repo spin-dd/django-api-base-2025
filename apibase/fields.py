@@ -15,11 +15,14 @@ class ListFieldMixin:
     default_error_messages = {"invalid_list": _("Enter a list of values.")}
 
     def to_python_value(self, value):
-        if not value:
+        if value in self.empty_values:
             return []
-        elif not isinstance(value, (list, tuple)):
+        if not isinstance(value, (list, tuple)):
             raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
-        return [self.converter(val) for val in value]
+        try:
+            return [self.converter(val) for val in value]
+        except (TypeError, ValueError):
+            raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
 
 
 class ListCharField(forms.CharField, ListFieldMixin):
