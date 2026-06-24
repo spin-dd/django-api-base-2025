@@ -1,20 +1,22 @@
 import inspect
 import re
 
+from django.contrib.contenttypes.fields import GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
-from django.contrib.contenttypes.fields import GenericRelation
 from django.http import QueryDict
-from django.urls import reverse
+
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 
-from .urn import model_urn, rest_endpoint_from_urn
-from django.contrib.contenttypes.models import ContentType
+from . import identity
+from ._spectacular import OpenApiTypes, extend_schema_field
+from .urn import rest_endpoint_from_urn
 
 
 def to_urn(instance, nss=None, nid=None):
-    return model_urn(instance, nss=nss, nid=nid)
+    return identity.urn(instance, nss=nss, nid=nid)
 
 
 def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=None):
@@ -23,16 +25,10 @@ def endpoint_from_urn(urn, domain=None, nid=None, prefix="/api/rest", request=No
 
 def drf_endpoint(instance, url_name=None, pk_name="pk"):
     """DRF endpoint"""
-    try:
-        if hasattr(instance, "get_endpoint_url"):
-            return instance.get_endpoint_url()
-        name = url_name or f"api-{instance._meta.app_label}-{instance._meta.model_name}-detail"
-        return reverse(name, kwargs={pk_name: instance.pk})
-    except Exception:
-        pass
-    return ""
+    return identity.endpoint(instance, url_name=url_name, pk_name=pk_name)
 
 
+@extend_schema_field(OpenApiTypes.URI)
 class EndpointField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -48,9 +44,11 @@ class EndpointField(fields.Field):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
         url = drf_endpoint(instance, url_name=self.get_url_name(value))
         request = self.context.get("request", None)
-        return (request and url) and request.build_absolute_uri(url) or url or None
+        builder = request if request and url else None
+        return identity.absolute_uri(url, builder=builder, fallback=url or None)
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class UrnField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -63,6 +61,7 @@ class UrnField(fields.Field):
         return to_urn(instance)
 
 
+@extend_schema_field(OpenApiTypes.STR)
 class DisplayField(fields.Field):
     def __init__(self, **kwargs):
         kwargs["source"] = "*"
@@ -72,7 +71,81 @@ class DisplayField(fields.Field):
 
     def to_representation(self, value):
         instance = self.attr_name and getattr(value, self.attr_name, None) or value
-        return str(instance)
+        return identity.display(instance)
+
+
+class NestedOrphanDeleteMixin:
+    """Opt-in mixin for `BaseModelSerializer` adding orphan-delete semantics.
+
+    For every field listed in `nested_fields_orphan_delete` (which must also
+    be in `BaseModelSerializer.nested_fields`), existing nested children that
+    are *not* present in the payload are deleted after the upsert pass
+    performed by `BaseModelSerializer.update_nested`.
+
+    Behaviour matrix:
+
+    ============================= ===========================================
+    payload state                 action on existing children
+    ============================= ===========================================
+    field absent from payload     no deletion (PATCH partial preserved)
+    field present, empty list     delete all
+    field present, list of items  upsert listed, delete unlisted
+    POST (no parent instance yet) no-op (all rows are freshly created)
+    ============================= ===========================================
+
+    Supports reverse-FK and `GenericRelation` targets. `OneToOneRel` fields
+    raise `NotImplementedError` — orphan-delete for a 0-or-1 relation has
+    ambiguous semantics and is intentionally out of scope.
+
+    Place the mixin **before** `BaseModelSerializer` in the MRO::
+
+        class MySerializer(NestedOrphanDeleteMixin, BaseModelSerializer):
+            children = ChildSerializer(many=True)
+            nested_fields = ["children"]
+            nested_fields_orphan_delete = ["children"]
+    """
+
+    nested_fields_orphan_delete: list[str] = []
+
+    def update_nested_field(self, field_name, instance, validated_data, children):
+        applies = field_name in self.nested_fields_orphan_delete and instance is not None
+
+        if applies:
+            # Resolve the related field early so OneToOneRel fails loud before
+            # super() mutates the database.
+            related_field = self._resolve_nested_related_field(field_name)
+            if isinstance(related_field, OneToOneRel):
+                raise NotImplementedError("NestedOrphanDeleteMixin does not yet support OneToOneRel fields")
+
+        items = super().update_nested_field(field_name, instance, validated_data, children)
+
+        if not applies:
+            return items
+        if not self._field_explicitly_present_in_payload(field_name):
+            return items
+
+        kept_ids = {item.id for item in (items or []) if item is not None and getattr(item, "id", None) is not None}
+        manager = getattr(instance, field_name)
+        manager.exclude(id__in=kept_ids).delete()
+        return items
+
+    def _field_explicitly_present_in_payload(self, field_name):
+        """Distinguish "field omitted from payload" from "field sent empty".
+
+        `BaseModelSerializer.run_validation` records the children set in two
+        shapes:
+
+        * dict path: every `nested_fields` key is present with `None` when
+          the payload did not include it. We treat `None` as "absent".
+        * QueryDict path: only keys present in the request body are added.
+          Missing keys are absent from the QueryDict.
+        """
+        children_set = getattr(self, "_children_set", None)
+        if children_set is None:
+            return False
+        if hasattr(children_set, "getlist"):
+            return field_name in children_set
+        return children_set.get(field_name) is not None
 
 
 class BaseModelSerializer(serializers.ModelSerializer):
@@ -88,7 +161,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)
-        self._actions = dict((k, v(self)) for k, v in self.action_handlers.items())
+        self._actions = {k: v(self) for k, v in self.action_handlers.items()}
 
     def _get_action(self, name):
         action = self._actions.get(name, None) or self._actions.get("*", None)
@@ -98,11 +171,13 @@ class BaseModelSerializer(serializers.ModelSerializer):
         action = self._get_action(self.view_action)
         action and action.validate()
 
-    def _save_for_action(self):
+    def _save_for_action(self, **kwargs):
         action = self._get_action(self.view_action)
         if action:
             return action.save(super())
-        return super().save()
+        # Honor DRF's `serializer.save(**extra)` contract: forward extra
+        # attributes (e.g. perform_create defaults) into the saved instance.
+        return super().save(**kwargs)
 
     def is_valid(self, raise_exception=False):
         """(override)"""
@@ -149,7 +224,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
         if self.nested_fields:
             if isinstance(data, QueryDict):
                 return self.run_validation_querydict(data=data)
-            self._children_set = dict((i, data.pop(i, None)) for i in self.nested_fields)
+            self._children_set = {i: data.pop(i, None) for i in self.nested_fields}
 
         return super().run_validation(data=data)
 
@@ -164,12 +239,15 @@ class BaseModelSerializer(serializers.ModelSerializer):
     def patch_children(self, instance, field_name, data):
         return data
 
+    def _resolve_nested_related_field(self, field_name):
+        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
+        return self.Meta.model._meta.get_field(name)
+
     def update_nested(self, instance, validated_data, field_name, children):
         if not children or not instance:
             return []
 
-        name = re.sub(r"(.+)(_set)$", r"\g<1>", field_name)
-        related_field = self.Meta.model._meta.get_field(name)
+        related_field = self._resolve_nested_related_field(field_name)
         remote_field_name = related_field.remote_field.name
 
         if isinstance(related_field, OneToOneRel):
@@ -216,7 +294,7 @@ class BaseModelSerializer(serializers.ModelSerializer):
 
     def validated_children_set(self, validated_data):
         children_set = getattr(self, "_children_set", [])
-        children_set = children_set or dict((i, validated_data.pop(i, [])) for i in self.nested_fields)
+        children_set = children_set or {i: validated_data.pop(i, []) for i in self.nested_fields}
         return children_set
 
     def update(self, instance, validated_data):
@@ -248,7 +326,8 @@ class BatchSerializerMixin:
     def to_internal_value(self, data):
         ret = super().to_internal_value(data)
         id_attr = getattr(self.Meta, "update_lookup_field", "id")
-        request_method = getattr(getattr(self.context.get("view"), "request"), "method", "")
+        request = self.context.get("view").request
+        request_method = getattr(request, "method", "")
 
         if all(
             (
@@ -260,7 +339,11 @@ class BatchSerializerMixin:
             id_field = self.fields[id_attr]
             id_value = id_field.get_value(data)
 
-            ret[id_attr] = id_value
+            # Coerce the lookup id through its field (e.g. "1" -> 1) so
+            # BatchListSerializer.update keys its dict by the same type as the
+            # instance pk. Skip when the id is absent from the payload.
+            if id_value is not empty:
+                ret[id_attr] = id_field.to_internal_value(id_value)
 
         return ret
 
@@ -273,12 +356,12 @@ class BatchListSerializer(serializers.ListSerializer):
 
         updating = {i.pop(id_attr): i for i in all_validated_data}
 
-        if not all((bool(i) and not inspect.isclass(i) for i in updating.keys())):
+        if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")
 
         objects_to_update = queryset.filter(
             **{
-                "{}__in".format(id_attr): updating.keys(),
+                f"{id_attr}__in": updating.keys(),
             }
         )
 

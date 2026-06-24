@@ -1,15 +1,23 @@
+from __future__ import annotations
+
+from logging import getLogger
 from pathlib import Path
+from typing import TypeVar
 
 from django.contrib.auth.models import Permission
+from django.db import models as django_models
 from django.http import Http404
 from django.utils.functional import cached_property
 from django.views import static
+
 from rest_framework import decorators, serializers, status, viewsets
 from rest_framework.response import Response
 
 from . import paginations, permissions, storages, utils
+from ._spectacular import OpenApiParameter, OpenApiTypes, extend_schema
 from .settings import apibase_settings
-from logging import getLogger
+
+_M = TypeVar("_M", bound=django_models.Model)
 
 
 logger = getLogger()
@@ -20,7 +28,7 @@ class ViewSetMixin:
     def permissions(cls):
         return [
             Permission.objects.filter(
-                **dict(zip(("content_type__app_label", "codename"), p.PERM_CODE.split(".")))
+                **dict(zip(("content_type__app_label", "codename"), p.PERM_CODE.split("."), strict=True))
             ).first()
             for p in cls.permission_classes
             if issubclass(p, permissions.Permission) and p.PERM_CODE
@@ -39,12 +47,40 @@ def static_serve(request, path, name=None, document_root="/"):
 
 
 class DownloadMixin:
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="field",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="FileField name to download",
+            )
+        ],
+        responses={200: bytes},
+    )
     @decorators.action(methods=["get"], detail=True, url_path="(?P<field>[^/.]+)/download")
     def download_filefield(self, request, pk, format=None, field=None):
         """download FileField file"""
         instance = self.get_object()
-        return self.response_field_data(request, instance, field)
+        return self.response_field_data(request, instance, field, format=format)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="field",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="FileField name to download",
+            ),
+            OpenApiParameter(
+                name="name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="File path in storage",
+            ),
+        ],
+        responses={200: bytes},
+    )
     @decorators.action(
         methods=["get"],
         detail=False,
@@ -53,9 +89,9 @@ class DownloadMixin:
     def download_filefield_storage(self, request, field=None, name=None, format=None):
         path = f"{name}.{format}" if format else name
         instance = storages.LocalPathResolver.find(self.queryset.model, field, path)
-        return self.response_field_data(request, instance, field)
+        return self.response_field_data(request, instance, field, format=format)
 
-    def response_field_data(self, request, instance, field):
+    def response_field_data(self, request, instance, field, format=None):
         try:
             field = getattr(instance, field, None)
             disposition = utils.to_content_disposition(self.get_download_filefield_name(instance, field))
@@ -80,7 +116,7 @@ class DownloadMixin:
         return f"{field.field.verbose_name}.{name}{ext}"
 
 
-class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
+class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
     pagination_class = paginations.Pagination
     fields_query = None
 
@@ -149,7 +185,7 @@ class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
     @cached_property
     def label_map(self):
         fields = getattr(self, "_fields", {})
-        return dict((name, f.label) for name, f in fields.items())
+        return {name: f.label for name, f in fields.items()}
 
     def get_renderer_context(self):
         """(override)"""
@@ -169,7 +205,7 @@ class BaseModelViewSet(viewsets.ModelViewSet, ViewSetMixin, DownloadMixin):
         context["header"] = self.request.GET[fields_query].split(",") if fields_query in self.request.GET else None
 
         context["labels"] = (
-            dict((i, self.label_map.get(i, i)) for i in context["header"]) if context["header"] else self.label_map
+            {i: self.label_map.get(i, i) for i in context["header"]} if context["header"] else self.label_map
         )
 
         return context

@@ -1,10 +1,18 @@
-import rest_framework
 from django.http import HttpResponse
+
+import rest_framework
 from graphene_django import settings, views
-from graphql.utils import schema_printer
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
+
+# graphql-core v3 compatibility
+try:
+    from graphql import print_schema  # graphql-core v3
+except ImportError:
+    from graphql.utils import schema_printer  # graphql-core v2
+
+    print_schema = schema_printer.print_schema
 
 
 def _decorate(view):
@@ -24,8 +32,12 @@ class DRFAuthenticatedGraphQLView(views.GraphQLView):
         return _decorate(super().as_view(*args, **kwargs))
 
 
+# Backward compatibility alias
+DRFGraphQLView = DRFAuthenticatedGraphQLView
+
+
 @_decorate
 def sdl(request):
-    """GraphQL Schema Definition Language (SDL). """
-    schema_str = schema_printer.print_schema(settings.graphene_settings.SCHEMA)
+    """GraphQL Schema Definition Language (SDL)."""
+    schema_str = print_schema(settings.graphene_settings.SCHEMA.graphql_schema)
     return HttpResponse(schema_str, content_type="text/plain")

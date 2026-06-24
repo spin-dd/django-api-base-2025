@@ -23,14 +23,15 @@ def import_from_string(val, setting_name):
     try:
         return import_string(val)
     except ImportError as e:
-        msg = "Could not import '%s' for API setting '%s'. %s: %s." % (val, setting_name, e.__class__.__name__, e)
+        msg = f"Could not import '{val!s}' for API setting '{setting_name!s}'. {e.__class__.__name__}: {e!s}."
         raise ImportError(msg)
 
 
-class Settings(object):
+class Settings:
     """base DRF APISettings"""
 
-    def __init__(self, user_settings=None, defaults=None, import_strings=None):
+    def __init__(self, user_settings=None, defaults=None, import_strings=None, name=None):
+        self.name = name
         self.user_settings = user_settings or {}
         self.defaults = defaults or {}
         self.import_strings = import_strings or {}
@@ -38,7 +39,7 @@ class Settings(object):
 
     def __getattr__(self, attr):
         if attr not in self.defaults:
-            raise AttributeError("Invalid API setting: '%s'" % attr)
+            raise AttributeError(f"Invalid API setting: '{attr!s}'")
 
         val = self.user_settings.get(attr, None)
         val_default = self.defaults.get(attr, None)
@@ -57,10 +58,24 @@ class Settings(object):
         setattr(self, attr, val)
         return val
 
+    def reload(self):
+        """Drop cached values and re-read user settings from Django settings.
+
+        Lets ``override_settings(<name>={...})`` take effect: the bound
+        ``setting_changed`` receiver calls this so the next attribute access
+        re-resolves against the current Django settings.
+        """
+        for attr in self._cached_attrs:
+            delattr(self, attr)
+        self._cached_attrs.clear()
+        if self.name is not None:
+            self.user_settings = getattr(dj_settings, self.name, None) or {}
+
     @classmethod
     def create(cls, name, default_tuple):
         return cls(
             getattr(dj_settings, name, None),
-            dict((i[0], i[1][1]) for i in default_tuple),
+            {i[0]: i[1][1] for i in default_tuple},
             [i[0] for i in default_tuple if i[1][0]],
+            name=name,
         )

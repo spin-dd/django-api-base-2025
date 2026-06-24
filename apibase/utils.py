@@ -1,18 +1,13 @@
 import re
 from urllib.parse import quote, unquote
 
-import graphene
 import six
-from django_filters.fields import MultipleChoiceField
 from django_filters.filters import RangeFilter
 from django_filters.utils import get_model_field
 from gql import Client, gql
 from graphene_django.forms.converter import convert_form_field
 from graphene_django.settings import graphene_settings
-from graphql_relay import to_global_id
-from graphql_relay.connection.arrayconnection import get_offset_with_default
-
-from .fields import ListCharField, ListIntegerField, MonthRangeField
+from graphql_relay import get_offset_with_default, to_global_id
 
 
 def get_filtering_args_from_filterset(filterset_class, type, obvious_filters=None):
@@ -99,28 +94,6 @@ def query(query_string, schema=None, **params):
         return query_instance(query_string, **params)
 
     return gql_query(schema, query_string, **params)
-
-
-def init_converter():
-    convert_form_field.register(
-        MultipleChoiceField,
-        lambda field: graphene.List(graphene.String, required=field.required),
-    )
-
-    convert_form_field.register(
-        ListCharField,
-        lambda field: graphene.List(graphene.String, required=field.required),
-    )
-
-    convert_form_field.register(
-        ListIntegerField,
-        lambda field: graphene.List(graphene.Int, required=field.required),
-    )
-
-    convert_form_field.register(
-        MonthRangeField,
-        lambda field: graphene.String(required=field.required),
-    )
 
 
 def get_filename_from_header(header):

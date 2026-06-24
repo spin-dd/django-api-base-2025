@@ -1,5 +1,7 @@
-from django.urls import reverse
 from django.contrib.sites.shortcuts import get_current_site
+from django.urls import reverse
+
+from . import identity
 
 
 def endpoint(instance_or_model, action, **params):
@@ -13,10 +15,12 @@ def endpoint(instance_or_model, action, **params):
 
 
 def absolute_path(path, request=None):
-    if request:
-        return request.build_absolute_uri(path)
-    current_site = get_current_site(None)
-    return f"https://{current_site.domain}{path}"
+    builder = request or None
+    fallback = None
+    if builder is None:
+        current_site = get_current_site(None)
+        fallback = f"https://{current_site.domain}{path}"
+    return identity.absolute_uri(path, builder=builder, fallback=fallback)
 
 
 def endpoint_url(instance_or_model, action, request=None, **params):
