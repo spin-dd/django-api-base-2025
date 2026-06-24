@@ -4,6 +4,7 @@ from datetime import date
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms.widgets import SelectMultiple
+from django.utils.translation import gettext_lazy as _
 
 from django_filters.fields import RangeField
 from django_filters.widgets import SuffixedMultiWidget
@@ -11,18 +12,21 @@ from django_filters.widgets import SuffixedMultiWidget
 
 class ListFieldMixin:
     converter = str
+    default_error_messages = {"invalid_list": _("Enter a list of values.")}
 
     def to_python_value(self, value):
-        if not value:
+        if value in self.empty_values:
             return []
-        elif not isinstance(value, (list, tuple)):
+        if not isinstance(value, (list, tuple)):
             raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
-        return [self.converter(val) for val in value]
+        try:
+            return [self.converter(val) for val in value]
+        except (TypeError, ValueError):
+            raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
 
 
 class ListCharField(forms.CharField, ListFieldMixin):
     widget = SelectMultiple
-    converter = str
 
     def to_python(self, value):
         return self.to_python_value(value)

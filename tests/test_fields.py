@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from django.core.exceptions import ValidationError
+
 import pytest
 
 from apibase.fields import CharRangeWidget, ListCharField, ListIntegerField, MonthRangeField
@@ -21,12 +23,19 @@ def test_list_char_field_empty_input_returns_empty_list():
 
 
 def test_list_char_field_rejects_non_sequence():
-    # LATENT BUG (characterized): the non-sequence branch tries to raise
-    # ValidationError(self.error_messages["invalid_list"]), but "invalid_list"
-    # was never added to error_messages, so it raises KeyError instead of a
-    # clean ValidationError. Pinned here until the message key is added.
-    with pytest.raises(KeyError):
+    # Non-sequence input is rejected with a clean ValidationError carrying the
+    # "invalid_list" message (defined via ListFieldMixin.default_error_messages),
+    # rather than leaking a KeyError on a missing message key.
+    with pytest.raises(ValidationError):
         ListCharField().to_python("not-a-list")
+
+
+@pytest.mark.parametrize("value", [0, False], ids=["zero", "false"])
+def test_list_char_field_rejects_falsy_scalar(value):
+    # A falsy scalar like 0/False is NOT an empty value; only explicit-empty
+    # values (None, '', [], (), {}) map to []. Everything else non-list/tuple raises.
+    with pytest.raises(ValidationError):
+        ListCharField().to_python(value)
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +52,17 @@ def test_list_integer_field_empty_input_returns_empty_list():
 
 
 def test_list_integer_field_rejects_non_sequence():
-    # Same latent bug as ListCharField (see note above): raises KeyError
-    # rather than a clean ValidationError for non-sequence input.
-    with pytest.raises(KeyError):
+    # Like ListCharField, non-sequence input yields a clean ValidationError
+    # (the "invalid_list" message) instead of a KeyError.
+    with pytest.raises(ValidationError):
         ListIntegerField().to_python("12")
+
+
+def test_list_integer_field_wraps_converter_failure_as_validation_error():
+    # A list item that cannot be converted (int("x") raises ValueError) must be
+    # surfaced as a clean ValidationError, not a leaked ValueError.
+    with pytest.raises(ValidationError):
+        ListIntegerField().to_python(["x"])
 
 
 # ---------------------------------------------------------------------------
