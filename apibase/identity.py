@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, TypeVar
 
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 
 from .urn import model_urn
 
@@ -25,7 +25,9 @@ def endpoint(instance: Any, url_name: str | None = None, pk_name: str = "pk") ->
         opts = instance._meta
         name = url_name or f"api-{opts.app_label}-{opts.model_name}-detail"
         return reverse(name, kwargs={pk_name: instance.pk})
-    except (AttributeError, NoReverseMatch):
+    except Exception:
+        # Optional display field: fail soft to "" rather than 500 the whole
+        # serialization (matches the pre-refactor drf_endpoint contract).
         return ""
 
 
