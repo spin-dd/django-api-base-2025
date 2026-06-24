@@ -339,7 +339,11 @@ class BatchSerializerMixin:
             id_field = self.fields[id_attr]
             id_value = id_field.get_value(data)
 
-            ret[id_attr] = id_value
+            # Coerce the lookup id through its field (e.g. "1" -> 1) so
+            # BatchListSerializer.update keys its dict by the same type as the
+            # instance pk. Skip when the id is absent from the payload.
+            if id_value is not empty:
+                ret[id_attr] = id_field.to_internal_value(id_value)
 
         return ret
 

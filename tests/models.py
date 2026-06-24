@@ -39,3 +39,13 @@ class Profile(models.Model):
 
     class Meta:
         app_label = "tests"
+
+
+class BatchItem(models.Model):
+    """Two required writable fields — used to verify batch PATCH stays partial."""
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=100)
+
+    class Meta:
+        app_label = "tests"
