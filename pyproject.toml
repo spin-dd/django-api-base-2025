@@ -1,6 +1,6 @@
 [project]
 name = "apibase"
-version = "0.4.1"
+version = "0.4.2"
 description = ""
 authors = [
     { name = "user.name", email = "gmail@hdknr.com" }
