@@ -55,7 +55,8 @@ uv run mkdocs build --strict
 ### apibase.filters
 - `BaseFilter`: FilterSetの拡張
 - `WordFilter`: 日本語検索対応フィルタ（全角/半角変換、複数キーワードAND検索）
-- `clone_filter_fields()`: フィルタフィールドの複製
+- `clone_filter_fields()`: フィルタフィールドの複製（`fields` / `exclude` で範囲、`methods` で文字列 method の扱いを指定）
+- `validate_method_filters()`: 解決できない文字列 `method` の検出（複製で組んだ FilterSet 向け）
 
 ### apibase.urn
 - URN形式: `urn:{app}:{model}:{pk}`

@@ -124,6 +124,9 @@ BookFilter.base_filters.update(
 )
 ```
 
+複製する範囲は `fields` / `exclude` で絞れます。`method='...'` で宣言されたフィルタは複製先の
+フィルタセットから名前を引くため、[フィルタガイド](../guides/filters.md)の注意点も確認してください。
+
 ## GraphQL
 
 ### REST APIとGraphQLを同時に使えますか？
