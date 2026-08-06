@@ -194,6 +194,37 @@ curl "http://localhost:8000/api/books/?author__name=山田"
 curl "http://localhost:8000/api/books/?author__country=JP"
 ```
 
+複製する範囲は `fields` / `exclude` で絞れます（名前は複製元のフィルタキー、プレフィックス前）:
+
+```python
+BookFilter.base_filters.update(
+    clone_filter_fields(AuthorFilter, 'author', fields=['name'])
+)
+```
+
+#### 文字列 method を持つフィルタ
+
+`method='...'` で宣言されたフィルタは、そのメソッドを**複製先のフィルタセット**から引きます。
+django-filter が名前を引くのはクエリ実行時なので、複製先に無くても import は通り、その
+クエリパラメータを最初に使ったリクエストが `AssertionError` になります。さらに、名前が解決
+できてもメソッド本体は複製元のモデル・関連の深さを前提にしているため、意味が保たれるとは
+限りません。
+
+`methods` で扱いを選び、組み上がったクラスを `validate_method_filters` で検査してください:
+
+```python
+from apibase.filters import clone_filter_fields, validate_method_filters
+
+# 文字列 method のフィルタは複製しない
+BookFilter.base_filters.update(
+    clone_filter_fields(AuthorFilter, 'author', methods='drop')
+)
+
+# 自分のテストで「解決できない method が無い」ことを固定する
+def test_book_filter_can_resolve_its_methods():
+    assert validate_method_filters(BookFilter) == []
+```
+
 ### make_related_filterset
 
 関連フィルタセットを動的に生成:

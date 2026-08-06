@@ -200,10 +200,11 @@ from apibase.filters import RelatedFilterSetMixin
 
 ```python
 @classmethod
-def create_related_filterset(cls, related_name) -> type
+def create_related_filterset(cls, related_name, fields=None, exclude=None, methods="keep") -> type
 ```
 
-関連名を指定して関連フィルタセットを作成します。
+関連名を指定して関連フィルタセットを作成します。`fields` / `exclude` / `methods` は
+`clone_filter_fields` にそのまま渡ります。
 
 ---
 
@@ -212,7 +213,9 @@ def create_related_filterset(cls, related_name) -> type
 ### clone_filter_fields
 
 ```python
-def clone_filter_fields(filter_class, prefix, distinct=None, fields=None, exclude=None) -> dict
+def clone_filter_fields(
+    filter_class, prefix, distinct=None, fields=None, exclude=None, methods="keep"
+) -> dict
 ```
 
 フィルタセットのフィールドを複製し、プレフィックスを追加します。
@@ -222,8 +225,12 @@ def clone_filter_fields(filter_class, prefix, distinct=None, fields=None, exclud
 - `filter_class` - 複製元のフィルタクラス
 - `prefix` - フィールド名のプレフィックス
 - `distinct` - distinctの設定
-- `fields` - 複製するフィールド（Noneで全て）
-- `exclude` - 除外するフィールド
+- `fields` - 複製するフィールド（Noneで全て）。名前は**複製元のフィルタキー**（プレフィックス前）
+- `exclude` - 除外するフィールド。`fields` との同時指定は `TypeError`
+- `methods` - 文字列 `method` を持つフィルタの扱い。`"keep"`（既定・複製する） / `"drop"`（複製しない） / `"error"`（複製を拒否して `ValueError`）
+
+`fields` / `exclude` に存在しない名前を渡すと `ValueError`。typo が黙って全件複製（`fields`）や
+無効化（`exclude`）にならないようにするためです。
 
 **戻り値**
 
@@ -242,7 +249,9 @@ BookFilter.base_filters.update(filters)
 ### make_related_filterset
 
 ```python
-def make_related_filterset(type_name, distinct=True, base_filters=None, **related_filters) -> type
+def make_related_filterset(
+    type_name, distinct=True, base_filters=None, methods="keep", **related_filters
+) -> type
 ```
 
 関連フィルタセットを動的に生成します。
@@ -252,6 +261,7 @@ def make_related_filterset(type_name, distinct=True, base_filters=None, **relate
 - `type_name` - 生成するクラス名
 - `distinct` - distinctの設定
 - `base_filters` - 基底フィルタクラスのタプル
+- `methods` - 文字列 `method` を持つフィルタの扱い（`clone_filter_fields` と同じ）
 - `**related_filters` - 関連名とフィルタクラスのマッピング
 
 **戻り値**
@@ -266,6 +276,28 @@ BookWithRelationsFilter = make_related_filterset(
     author=AuthorFilter,
     publisher=PublisherFilter,
 )
+```
+
+---
+
+### validate_method_filters
+
+```python
+def validate_method_filters(filter_class) -> list[tuple[str, str]]
+```
+
+`filter_class` が解決できない文字列 `method` を `(フィルタキー, メソッド名)` で返します。
+django-filter は文字列 `method` を**クエリ実行時**に親フィルタセットから引くため、解決できない
+名前は import では気付けず、そのクエリパラメータを最初に使ったリクエストで `AssertionError`
+になります。複製で組み立てたフィルタセットは、自分のテストで空を assert してください。
+
+**使用例**
+
+```python
+from apibase.filters import validate_method_filters
+
+def test_filtersets_can_resolve_their_methods():
+    assert validate_method_filters(BookWithAuthorFilter) == []
 ```
 
 ---
