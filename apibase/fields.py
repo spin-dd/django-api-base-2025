@@ -19,8 +19,16 @@ class ListFieldMixin:
             return []
         if not isinstance(value, (list, tuple)):
             raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
+        # Drop empty members instead of filtering on them. `?key=` reaches the form as
+        # `[""]` (QueryDict.getlist), so keeping it would turn "no selection" into
+        # `field__in=[""]` -- a silent narrowing to blank rows for ListCharField, and a
+        # 400 for ListIntegerField. django_filters skips scalar filters on empty values;
+        # this keeps the list filters consistent with that.
+        items = [val for val in value if val not in self.empty_values]
+        if not items:
+            return []
         try:
-            return [self.converter(val) for val in value]
+            return [self.converter(val) for val in items]
         except (TypeError, ValueError):
             raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
 

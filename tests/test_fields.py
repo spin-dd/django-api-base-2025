@@ -38,6 +38,14 @@ def test_list_char_field_rejects_falsy_scalar(value):
         ListCharField().to_python(value)
 
 
+def test_list_char_field_drops_empty_members():
+    # `?key=` reaches the form as [""] (QueryDict.getlist). Treating it as a value
+    # would filter on the empty string; "nothing selected" must mean "no filter".
+    assert ListCharField().to_python([""]) == []
+    assert ListCharField().to_python([None]) == []
+    assert ListCharField().to_python(["a", "", "b"]) == ["a", "b"]
+
+
 # ---------------------------------------------------------------------------
 # FRM-002 ListIntegerField
 # ---------------------------------------------------------------------------
@@ -63,6 +71,18 @@ def test_list_integer_field_wraps_converter_failure_as_validation_error():
     # surfaced as a clean ValidationError, not a leaked ValueError.
     with pytest.raises(ValidationError):
         ListIntegerField().to_python(["x"])
+
+
+def test_list_integer_field_drops_empty_members():
+    # Same rule as ListCharField. Without this, `?key=` raises ValidationError
+    # (int("") -> ValueError) and the request 400s instead of skipping the filter.
+    assert ListIntegerField().to_python([""]) == []
+    assert ListIntegerField().to_python(["1", "", "2"]) == [1, 2]
+
+
+def test_list_integer_field_keeps_zero():
+    # 0 is a real value, not an empty one -- it must survive the empty-member drop.
+    assert ListIntegerField().to_python(["0", 0]) == [0, 0]
 
 
 # ---------------------------------------------------------------------------

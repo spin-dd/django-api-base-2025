@@ -1,11 +1,14 @@
 """Tests for `apibase.filters` (FIL-001 BaseFilter id filters, FIL-003 WordFilter,
 FIL-009 clone_filter_fields)."""
 
+from django.http import QueryDict
+
 import django_filters
 import pytest
 
 from apibase.filters import (
     BaseFilter,
+    ListCharInFilter,
     RelatedFilterSetMixin,
     WordFilter,
     clone_filter_fields,
@@ -116,6 +119,40 @@ def test_id_excludes_removes_given_ids(parents):
     result = _ParentFilterSet({"id__excludes": excluded}, queryset=Parent.objects.all()).qs
 
     assert sorted(p.id for p in result) == sorted([parents[1].id, parents[2].id])
+
+
+class _NameInFilterSet(BaseFilter):
+    name__in = ListCharInFilter(field_name="name")
+
+    class Meta:
+        model = Parent
+        fields: list[str] = []
+
+
+def _name_in_qs(query_string, queryset):
+    return _NameInFilterSet(QueryDict(query_string), queryset=queryset).qs
+
+
+def test_list_in_filter_blank_value_does_not_filter():
+    # A cleared multi-select still sends the key with no value. Before the empty-member
+    # drop this filtered on `name__in=[""]`, so the caller silently got only the blank
+    # rows back instead of the unfiltered set -- with a valid form and no error.
+    kept = Parent.objects.create(name="p0")
+    blank = Parent.objects.create(name="")
+
+    result = _name_in_qs("name__in=", Parent.objects.all())
+
+    assert sorted(p.id for p in result) == sorted([kept.id, blank.id])
+
+
+def test_list_in_filter_ignores_blank_alongside_real_values():
+    kept = Parent.objects.create(name="p0")
+    Parent.objects.create(name="p1")
+    Parent.objects.create(name="")
+
+    result = _name_in_qs("name__in=&name__in=p0", Parent.objects.all())
+
+    assert [p.id for p in result] == [kept.id]
 
 
 def test_id_in_csv_accepts_comma_separated_ids(parents):
