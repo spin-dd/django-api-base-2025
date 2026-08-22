@@ -1,4 +1,14 @@
-__version__ = "0.4.0"
+from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+try:
+    # 出所は pyproject.toml の 1 箇所だけにする。ここに文字列を写すと release の
+    # たびに手で揃える必要があり、実際 pyproject が 0.4.5 になっても
+    # ここは 0.4.0 のまま取り残されていた。
+    __version__ = _dist_version("apibase")
+except PackageNotFoundError:
+    # インストールされていない source tree から import されたとき。嘘の版を
+    # 名乗るより「不明」と分かる値を返す。
+    __version__ = "0.0.0"
 
 # Eagerly trigger GraphQL form-field converter registration so that filters
 # using ListCharField / ListIntegerField surface the correct GraphQL types
