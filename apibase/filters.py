@@ -35,7 +35,13 @@ class WordFilter(django_filters.CharFilter):
 
         def _q(lookup, val):
             key = f"{lookup}__{self.lookup_expr}"
+            # 生の入力も候補に残す。zen2han / han2zen は語全体へ一律に掛かるため、
+            # 1 語の中で幅が混ざる値 (半角 ASCII/数字 + 全角カナ: `太平ビル2号館`
+            # `ABCビル`) はどちらの変換結果にも一致せず、格納値をそのまま打っても
+            # 0 件になる。set なので単一表記の値では要素が増えず、LIKE が増えるのは
+            # 今まさに 0 件になっている混在入力のときだけ。
             vals = {
+                val,
                 jaconv.zen2han(val, ascii=True, kana=True, digit=True),
                 jaconv.han2zen(val, ascii=True, kana=True, digit=True),
             }

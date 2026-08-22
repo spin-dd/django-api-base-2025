@@ -50,6 +50,24 @@ def test_word_filter_matches_across_width(stored, query):
     assert _names(result) == [stored]
 
 
+@pytest.mark.parametrize(
+    "stored",
+    ["太平ビル2号館", "ABCビル", "OMコミュニティ"],
+    ids=["halfwidth-digit", "halfwidth-ascii", "halfwidth-ascii-with-kana"],
+)
+def test_word_filter_matches_a_record_typed_verbatim(stored):
+    # zen2han / han2zen は語全体へ一律に掛かるので、1 語の中で幅が混ざる値は
+    # どちらの変換結果とも一致しない (`太平ビル2号館` -> `太平ﾋﾞﾙ2号館` /
+    # `太平ビル２号館`)。生の入力を候補に残さないと、格納値をそのまま打った
+    # 利用者に 0 件を返す — 素の `icontains` にはあった保証なので回帰になる。
+    Parent.objects.create(name=stored)
+    Parent.objects.create(name="ZZZ")
+
+    result = _WordFilterSet({"word": stored}, queryset=Parent.objects.all()).qs
+
+    assert _names(result) == [stored]
+
+
 def test_word_filter_ands_multiple_tokens():
     Parent.objects.create(name="alpha beta")
     Parent.objects.create(name="alpha only")
