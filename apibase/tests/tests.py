@@ -1,9 +1,10 @@
 import copy
 import json
 
-import yaml
 from django.contrib.auth import get_user_model
 from django.test import TransactionTestCase
+
+import yaml
 from rest_framework.test import APIClient
 
 from apibase.utils import query

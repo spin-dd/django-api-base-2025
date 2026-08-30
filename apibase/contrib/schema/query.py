@@ -17,6 +17,7 @@ class User(NodeMixin, DjangoObjectType):
         filterset_class = filters.UserFilter
         interfaces = (graphene.Node,)
         convert_choices_to_enum = False
+        exclude = ["password"]
 
     def resolve_permissions(root, info):
         return all_permissions(root)
@@ -28,6 +29,7 @@ class Group(NodeMixin, DjangoObjectType):
         filterset_class = filters.GroupFilter
         interfaces = (graphene.Node,)
         convert_choices_to_enum = False
+        exclude = []
 
 
 class Permission(NodeMixin, DjangoObjectType):
@@ -36,6 +38,7 @@ class Permission(NodeMixin, DjangoObjectType):
         filterset_class = filters.PermissionFilter
         interfaces = (graphene.Node,)
         convert_choices_to_enum = False
+        exclude = []
 
 
 class ContentType(NodeMixin, DjangoObjectType):
@@ -44,6 +47,7 @@ class ContentType(NodeMixin, DjangoObjectType):
         filterset_class = filters.ContentTypeFilter
         interfaces = (graphene.Node,)
         convert_choices_to_enum = False
+        exclude = []
 
 
 class UserQueryMixin:
@@ -66,5 +70,11 @@ class ConteTypeQueryMixin:
     contenttype_set = NodeSet(ContentType)
 
 
-class Query(graphene.ObjectType, UserQueryMixin, GroupQueryMixin, PermissionQueryMixin, ConteTypeQueryMixin):
+class Query(
+    graphene.ObjectType,
+    UserQueryMixin,
+    GroupQueryMixin,
+    PermissionQueryMixin,
+    ConteTypeQueryMixin,
+):
     pass

@@ -1,0 +1,202 @@
+site_name: apibase
+site_description: Django REST Framework & GraphQL 拡張ライブラリ
+site_author: hdknr
+repo_url: https://github.com/spin-dd/django-api-base-2025
+repo_name: spin-dd/django-api-base-2025
+
+theme:
+  name: material
+  language: ja
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: ダークモードに切り替え
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: ライトモードに切り替え
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      lang: ja
+  - section-index
+  - gen-files:
+      scripts:
+        - scripts/gen_api_docs.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_style: google
+            docstring_section_style: spacy
+            merge_init_into_class: true
+            show_signature_annotations: true
+            separate_signature: true
+            line_length: 80
+            members_order: source
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: spin-dd
+      repo: django-api-base-2025
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - はじめに:
+    - getting-started/index.md
+    - インストール: getting-started/installation.md
+    - クイックスタート: getting-started/quick-start.md
+    - 設定ガイド: getting-started/configuration.md
+  - ガイド:
+    - guides/index.md
+    - ViewSet活用ガイド: guides/viewsets.md
+    - Serializer活用ガイド: guides/serializers.md
+    - フィルタリング機能: guides/filters.md
+    - GraphQL統合: guides/graphql.md
+    - GraphQL型定義: guides/graphql-types.md
+    - WebSocket/Channels: guides/websocket.md
+    - ファイルダウンロード: guides/file-download.md
+    - バッチ操作: guides/batch-operations.md
+    - 権限管理: guides/permissions.md
+  - チュートリアル:
+    - tutorials/index.md
+    - 基本的なAPI構築: tutorials/basic-api.md
+    - GraphQL API構築: tutorials/graphql-api.md
+    - ネストシリアライザ: tutorials/nested-serializers.md
+    - カスタムフィルタ作成: tutorials/custom-filters.md
+    - テストの書き方: tutorials/testing.md
+    - "実例: REST API": tutorials/real-world-rest.md
+    - "実例: GraphQL": tutorials/real-world-graphql.md
+  - アーキテクチャ:
+    - architecture/index.md
+    - 全体像: architecture/overview.md
+    - モジュール構成: architecture/modules.md
+    - REST API設計思想: architecture/rest-design.md
+    - GraphQL設計思想: architecture/graphql-design.md
+    - URNシステム: architecture/urn-system.md
+    - 設計判断: architecture/design-decisions.md
+  - APIリファレンス:
+    - reference/index.md
+    - viewsets: reference/viewsets.md
+    - serializers: reference/serializers.md
+    - filters: reference/filters.md
+    - fields: reference/fields.md
+    - routers: reference/routers.md
+    - paginations: reference/paginations.md
+    - permissions: reference/permissions.md
+    - renderers: reference/renderers.md
+    - GraphQL:
+      - reference/graphql/index.md
+      - mixins: reference/graphql/mixins.md
+      - fields: reference/graphql/fields.md
+      - connections: reference/graphql/connections.md
+    - contrib:
+      - reference/contrib/index.md
+      - schema: reference/contrib/schema.md
+      - models: reference/contrib/models.md
+    - utils: reference/utils.md
+    - urn: reference/urn.md
+    - storages: reference/storages.md
+    - archives: reference/archives.md
+    - consumers: reference/consumers.md
+    - settings: reference/settings.md
+  - 実例集:
+    - examples/index.md
+    - CRUD ViewSet: examples/crud-viewset.md
+    - バッチ作成: examples/batch-create.md
+    - ファイルアップロード/ダウンロード: examples/file-upload-download.md
+    - 日本語検索: examples/word-filter.md
+    - GraphQL Node: examples/graphql-node.md
+    - GraphQL Query: examples/graphql-query.md
+    - WebSocket: examples/websocket.md
+  - 開発者向け:
+    - development/index.md
+    - コントリビューションガイド: development/contributing.md
+    - 開発環境構築: development/setup.md
+    - テスト方法: development/testing.md
+    - コーディング規約: development/coding-standards.md
+    - リリースプロセス: development/release.md
+    - 変更履歴: development/changelog.md
+  - 付録:
+    - よくある質問: appendix/faq.md
+    - マイグレーションガイド: appendix/migration.md
+    - トラブルシューティング: appendix/troubleshooting.md
+    - 用語集: appendix/glossary.md
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/spin-dd/django-api-base-2025
+
+watch:
+  - apibase

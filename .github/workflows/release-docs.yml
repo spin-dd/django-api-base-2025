@@ -1,0 +1,108 @@
+name: Release Documentation
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: 'Create as draft'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag format
+        run: |
+          if [[ ! "${{ inputs.tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Error: Tag must be in format v*.*.*  (e.g., v0.1.0, v1.0.0-beta.1)"
+            exit 1
+          fi
+
+      - name: Checkout v2025 branch
+        uses: actions/checkout@v4
+        with:
+          ref: v2025
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra docs
+
+      - name: Build documentation
+        run: |
+          uv run mkdocs build --strict
+
+      - name: Create docs.zip
+        run: |
+          cd site
+          zip -r ../docs.zip .
+          cd ..
+          echo "Created docs.zip with $(du -h docs.zip | cut -f1) size"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat << 'EOF' > release_notes.md
+          ## Documentation Release ${{ inputs.tag }}
+
+          This release contains the built documentation for apibase.
+
+          ### Contents
+
+          - `docs.zip` - Complete MkDocs documentation site
+
+          ### How to use
+
+          1. Download `docs.zip`
+          2. Extract the contents
+          3. Open `index.html` in a browser
+
+          Or serve locally:
+          ```bash
+          unzip docs.zip -d docs-site
+          cd docs-site
+          python -m http.server 8000
+          # Open http://localhost:8000
+          ```
+
+          ### Build Information
+
+          - **Branch**: v2025
+          - **Commit**: ${{ github.sha }}
+          - **Built at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: Documentation ${{ inputs.tag }}
+          body_path: release_notes.md
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          files: docs.zip
+          target_commitish: v2025

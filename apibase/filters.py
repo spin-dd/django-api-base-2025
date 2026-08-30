@@ -1,14 +1,16 @@
 """
 https://django-filter.readthedocs.io/en/stable/
 """
+
 import operator
 import re
-from functools import reduce
+from functools import cache, reduce
+
+from django import forms
+from django.db.models import IntegerField, Q
 
 import django_filters
 import jaconv
-from django import forms
-from django.db.models import IntegerField, Q
 
 from .fields import CharRangeField, ListCharField, ListIntegerField, MonthRangeField
 
@@ -33,12 +35,16 @@ class WordFilter(django_filters.CharFilter):
 
         def _q(lookup, val):
             key = f"{lookup}__{self.lookup_expr}"
-            vals = set(
-                [
-                    jaconv.zen2han(val, ascii=True, kana=True, digit=True),
-                    jaconv.han2zen(val, ascii=True, kana=True, digit=True),
-                ]
-            )
+            # 生の入力も候補に残す。zen2han / han2zen は語全体へ一律に掛かるため、
+            # 1 語の中で幅が混ざる値 (半角 ASCII/数字 + 全角カナ: `太平ビル2号館`
+            # `ABCビル`) はどちらの変換結果にも一致せず、格納値をそのまま打っても
+            # 0 件になる。set なので単一表記の値では要素が増えず、LIKE が増えるのは
+            # 今まさに 0 件になっている混在入力のときだけ。
+            vals = {
+                val,
+                jaconv.zen2han(val, ascii=True, kana=True, digit=True),
+                jaconv.han2zen(val, ascii=True, kana=True, digit=True),
+            }
             return reduce(operator.or_, (Q(**{key: v}) for v in vals))
 
         vals = re.split(self.delimiters, value)
@@ -106,6 +112,81 @@ class BaseFilter(django_filters.FilterSet):
     )
 
 
+def fan_out_base(queryset):
+    """Return a clean base queryset for evaluating a multi-value relation.
+
+    ``_base_manager`` であって ``_default_manager`` ではない。畳み込みは
+    ``pk__in`` で外側 queryset との積を取るため、内側は外側の**上位集合**である
+    必要がある。default manager が絞り込む (soft delete、テナント分離など) 場合、
+    ViewSet がそれより広い queryset を返していると、内側で先に落ちた行が
+    外側からも無言で消える。
+    """
+    return queryset.model._base_manager.all()
+
+
+def fold_fan_out(queryset, matched, *, values_path="pk"):
+    """Apply matched parent keys through a non-correlated subquery."""
+    return queryset.filter(pk__in=matched.values(values_path))
+
+
+class FanOutFilterMixin(django_filters.Filter):
+    """Fold a multi-value relation without DISTINCT on the outer queryset."""
+
+    folds_fan_out = True
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("distinct", False)
+        super().__init__(*args, **kwargs)
+
+    def filter(self, queryset, value):
+        if value in django_filters.constants.EMPTY_VALUES:
+            return queryset
+        base = fan_out_base(queryset)
+        matched = super().filter(base, value)
+        if matched is base:
+            return queryset
+        return fold_fan_out(queryset, matched)
+
+
+class FanOutCharFilter(FanOutFilterMixin, django_filters.CharFilter):
+    """Fan-out-folding character filter."""
+
+
+class FanOutWordFilter(FanOutFilterMixin, WordFilter):
+    """Fan-out-folding width-aware word filter."""
+
+
+class FanOutModelChoiceFilter(FanOutFilterMixin, django_filters.ModelChoiceFilter):
+    """Fan-out-folding model choice filter."""
+
+
+class FanOutModelMultipleChoiceFilter(FanOutFilterMixin, django_filters.ModelMultipleChoiceFilter):
+    """Fan-out-folding model multiple-choice filter."""
+
+
+class FanOutDateFromToRangeFilter(FanOutFilterMixin, django_filters.DateFromToRangeFilter):
+    """Fan-out-folding date range filter."""
+
+
+@cache
+def fan_out_filter_class(filter_class):
+    """Return a stable fan-out-folding subclass of ``filter_class``."""
+    return type(f"FanOut{filter_class.__name__}", (FanOutFilterMixin, filter_class), {})
+
+
+class FanOutBaseFilter(BaseFilter):
+    """Opt-in FilterSet base that folds generated multi-value relations."""
+
+    @classmethod
+    def filter_for_lookup(cls, field, lookup_type):
+        filter_class, params = super().filter_for_lookup(field, lookup_type)
+        if filter_class is None:
+            return filter_class, params
+        if getattr(field, "many_to_many", False) or getattr(field, "one_to_many", False):
+            return fan_out_filter_class(filter_class), params
+        return filter_class, params
+
+
 class AllValuesMultipleFilter(django_filters.AllValuesMultipleFilter):
     # field_class: django_filters.fields.MultipleChoiceField
 
@@ -128,9 +209,90 @@ class MonthFromToRangeFilter(django_filters.RangeFilter):
     field_class = MonthRangeField
 
 
-def clone_filter_fields(filter_class, prefix, distinct=None, fields=None, exclude=None):
+CLONE_METHOD_POLICIES = ("keep", "drop", "error")
+
+
+def validate_method_filters(filter_class):
+    """Return ``(filter_key, method_name)`` for each string ``method`` the class cannot resolve.
+
+    django-filter looks a string ``method`` up on the running filterset, so a composed
+    class (see `clone_filter_fields`) imports cleanly and then raises on the first
+    request that uses the parameter. Assert this is empty over your own filtersets to
+    turn that into a test failure.
+    """
+    filters = {
+        **getattr(filter_class, "declared_filters", {}),
+        **getattr(filter_class, "base_filters", {}),
+    }
+    return [
+        (key, instance.method)
+        for key, instance in filters.items()
+        if isinstance(getattr(instance, "method", None), str)
+        and not callable(getattr(filter_class, instance.method, None))
+    ]
+
+
+def _select_filter_keys(source, filter_class, fields, exclude):
+    if fields is not None and exclude is not None:
+        raise TypeError("clone_filter_fields() accepts 'fields' or 'exclude', not both.")
+
+    for label, names in (("fields", fields), ("exclude", exclude)):
+        if names is None:
+            continue
+        unknown = sorted(set(names) - set(source))
+        if unknown:
+            raise ValueError(
+                f"clone_filter_fields() got unknown {label} name(s) {unknown} "
+                f"for {filter_class.__name__}. Names are the source filter keys, not the prefixed ones."
+            )
+
+    if fields is not None:
+        wanted = set(fields)
+        return [key for key in source if key in wanted]
+    if exclude is not None:
+        unwanted = set(exclude)
+        return [key for key in source if key not in unwanted]
+    return list(source)
+
+
+def _apply_method_policy(source, keys, filter_class, methods):
+    if methods not in CLONE_METHOD_POLICIES:
+        raise ValueError(f"clone_filter_fields() got methods={methods!r}; expected one of {CLONE_METHOD_POLICIES}.")
+    if methods == "keep":
+        return keys
+
+    named = {key for key in keys if isinstance(getattr(source[key], "method", None), str)}
+    if not named:
+        return keys
+    if methods == "drop":
+        return [key for key in keys if key not in named]
+
+    raise ValueError(
+        f"clone_filter_fields() will not clone the string-method filter(s) {sorted(named)} "
+        f"of {filter_class.__name__} under methods='error': the method is looked up on the "
+        "filterset that ends up owning the clone. Define the method there and use "
+        "methods='keep', or leave them out with 'exclude'."
+    )
+
+
+def clone_filter_fields(filter_class, prefix, distinct=None, fields=None, exclude=None, methods="keep"):
+    """Clone ``filter_class``'s filters under ``prefix`` (``prefix__<key>``).
+
+    ``fields`` / ``exclude`` name **source** filter keys (before prefixing) and are
+    mutually exclusive; an unknown name raises rather than silently widening the
+    cloned set.
+
+    ``methods`` decides what happens to filters declared with a *string* ``method``
+    (``keep`` clones them, ``drop`` leaves them out, ``error`` refuses). Such a method
+    is looked up on whichever filterset ends up owning the clone, and django-filter
+    resolves it lazily — a name that does not resolve there imports cleanly and raises
+    at query time. Beyond the name, the method carries the source filterset's queryset
+    assumptions (its model, its relation depth) into the clone, so a resolvable name is
+    not by itself proof the clone means the same thing. Assert `validate_method_filters`
+    over the composed class.
+    """
+
     def _item(key, instance, distinct=None):
-        # TOOD: method
         params = {}
         if hasattr(instance, "queryset"):
             params["queryset"] = instance.queryset
@@ -155,18 +317,32 @@ def clone_filter_fields(filter_class, prefix, distinct=None, fields=None, exclud
             ),
         )
 
+    source = {**filter_class.declared_filters, **filter_class.base_filters}
+    keys = _select_filter_keys(source, filter_class, fields, exclude)
+    keep = set(_apply_method_policy(source, keys, filter_class, methods))
+
+    # Declared first, then base, so that both the key order and "base wins" match
+    # what callers already have: the order decides the order filters are applied in.
     return {
-        **dict(_item(key, instance, distinct=distinct) for key, instance in filter_class.declared_filters.items()),
-        **dict(_item(key, instance, distinct=distinct) for key, instance in filter_class.base_filters.items()),
+        **dict(
+            _item(key, instance, distinct=distinct)
+            for key, instance in filter_class.declared_filters.items()
+            if key in keep
+        ),
+        **dict(
+            _item(key, instance, distinct=distinct)
+            for key, instance in filter_class.base_filters.items()
+            if key in keep
+        ),
     }
 
 
-def make_related_filterset(type_name, distinct=True, base_filters=None, **related_filters):
+def make_related_filterset(type_name, distinct=True, base_filters=None, methods="keep", **related_filters):
     base_filters = base_filters or (BaseFilter,)
     fields = reduce(
         lambda a, b: {**a, **b},
         [
-            clone_filter_fields(filter_class, prefix, distinct=distinct)
+            clone_filter_fields(filter_class, prefix, distinct=distinct, methods=methods)
             for prefix, filter_class in related_filters.items()
         ],
     )
@@ -175,9 +351,9 @@ def make_related_filterset(type_name, distinct=True, base_filters=None, **relate
 
 class RelatedFilterSetMixin:
     @classmethod
-    def create_related_filterset(cls, related_name):
-        fields = clone_filter_fields(cls, related_name)
-        return type(f"RelatedFilter_{related_name}", (django_filters.FilterSet,), fields)
+    def create_related_filterset(cls, related_name, fields=None, exclude=None, methods="keep"):
+        cloned = clone_filter_fields(cls, related_name, fields=fields, exclude=exclude, methods=methods)
+        return type(f"RelatedFilter_{related_name}", (django_filters.FilterSet,), cloned)
 
 
 class CharRangeFilter(django_filters.RangeFilter):

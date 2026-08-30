@@ -2,6 +2,7 @@ from itertools import chain
 
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
+
 from rest_framework import viewsets
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
