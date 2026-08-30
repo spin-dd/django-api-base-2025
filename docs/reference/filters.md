@@ -39,6 +39,28 @@ def filter_for_lookup(cls, field, lookup_type)
 
 ---
 
+### FanOutBaseFilter
+
+M2M・reverse FK の自動生成フィルターを、外側の `DISTINCT` ではなく主キーの非相関
+サブクエリで畳む opt-in の FilterSet 基底です。通常の `BaseFilter` の既定は変えません。
+
+```python
+from apibase.filters import FanOutBaseFilter
+```
+
+明示宣言用のクラス:
+
+- `FanOutCharFilter`
+- `FanOutWordFilter`
+- `FanOutModelChoiceFilter`
+- `FanOutModelMultipleChoiceFilter`
+- `FanOutDateFromToRangeFilter`
+
+これらは `folds_fan_out=True` を公開し、GraphQL の distinct 判定にも畳み込み済みであることを
+伝えます。空入力と空の複数選択は queryset を変更しません。
+
+---
+
 ### WordFilter
 
 日本語検索に対応したフィルタです。

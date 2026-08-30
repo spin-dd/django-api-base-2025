@@ -32,6 +32,29 @@ class ProductFilter(BaseFilter):
 | `id__in_csv` | CSVフォーマットでIDを指定 | `?id__in_csv=1,2,3` |
 | `id__not_in_csv` | CSVフォーマットで除外 | `?id__not_in_csv=4,5` |
 
+## FanOutBaseFilter
+
+`FanOutBaseFilter` は、M2M・reverse FK の自動生成フィルターを
+`pk IN (非相関サブクエリ)` で畳む opt-in の基底クラスです。外側の一覧へ
+`SELECT DISTINCT` を掛けないため、列数が多い一覧の COUNT でも全列の重複除去を避けられます。
+
+```python
+from apibase.filters import FanOutBaseFilter
+
+class ProductFilter(FanOutBaseFilter):
+    class Meta:
+        model = Product
+        fields = ["tags"]
+```
+
+通常の `BaseFilter` の既定は変わりません。適用範囲を検証できる FilterSet だけで明示的に
+`FanOutBaseFilter` を継承してください。手動宣言には `FanOutCharFilter`、
+`FanOutWordFilter`、`FanOutModelChoiceFilter`、`FanOutModelMultipleChoiceFilter`、
+`FanOutDateFromToRangeFilter` を使用できます。
+
+空入力と空の複数選択は queryset を変更しません。GraphQL も fan-out filter の marker を読み、
+同じ外側 queryset へ `DISTINCT` を重ねません。
+
 ## WordFilter
 
 日本語検索に対応したフィルタです。全角・半角を自動的に変換して検索します。
