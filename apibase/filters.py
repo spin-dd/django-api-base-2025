@@ -113,8 +113,15 @@ class BaseFilter(django_filters.FilterSet):
 
 
 def fan_out_base(queryset):
-    """Return a clean base queryset for evaluating a multi-value relation."""
-    return queryset.model._default_manager.all()
+    """Return a clean base queryset for evaluating a multi-value relation.
+
+    ``_base_manager`` であって ``_default_manager`` ではない。畳み込みは
+    ``pk__in`` で外側 queryset との積を取るため、内側は外側の**上位集合**である
+    必要がある。default manager が絞り込む (soft delete、テナント分離など) 場合、
+    ViewSet がそれより広い queryset を返していると、内側で先に落ちた行が
+    外側からも無言で消える。
+    """
+    return queryset.model._base_manager.all()
 
 
 def fold_fan_out(queryset, matched, *, values_path="pk"):

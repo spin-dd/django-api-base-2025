@@ -17,6 +17,7 @@ from apibase.filters import (
     FanOutModelMultipleChoiceFilter,
     FanOutWordFilter,
 )
+from tests.models import Vendor, VendorTag
 
 pytestmark = pytest.mark.django_db
 
@@ -136,3 +137,36 @@ def test_contrib_group_permissions_uses_the_opt_in_fan_out_filter():
     assert list(filtered.values_list("pk", flat=True)) == [group.pk]
     assert filtered.query.distinct is False
     assert " IN (SELECT " in str(filtered.query).upper()
+
+
+class _FanOutVendorFilter(FanOutBaseFilter):
+    class Meta:
+        model = Vendor
+        fields = ["tags"]
+
+
+class _DefaultVendorFilter(BaseFilter):
+    class Meta:
+        model = Vendor
+        fields = ["tags"]
+
+
+def test_fan_out_folding_keeps_rows_the_outer_queryset_owns():
+    """Folding must not re-apply the default manager's own narrowing.
+
+    ``Vendor.objects`` hides soft-deleted rows, but the caller passes the
+    broader ``all_objects`` queryset. Evaluating the subquery against the
+    default manager would drop the matching row from the outer result.
+    """
+    hidden = Vendor.all_objects.create(name="hidden", deleted=True)
+    tag = VendorTag.objects.create(vendor=hidden, name="alpha")
+
+    query = QueryDict(mutable=True)
+    query.setlist("tags", [str(tag.pk)])
+    outer = Vendor.all_objects.all()
+
+    folded = _FanOutVendorFilter(query, queryset=outer).qs
+    default = _DefaultVendorFilter(query, queryset=outer).qs
+
+    assert list(folded.values_list("pk", flat=True)) == [hidden.pk]
+    assert list(folded.values_list("pk", flat=True)) == list(default.values_list("pk", flat=True))
