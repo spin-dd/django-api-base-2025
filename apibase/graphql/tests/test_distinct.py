@@ -103,6 +103,21 @@ class TestFilterNeedsDistinct:
 
         assert result is True
 
+    def test_fan_out_folded_m2m_does_not_request_outer_distinct(self):
+        """A subquery-folded filter must not pay DISTINCT again in GraphQL."""
+        from apibase.filters import FanOutCharFilter
+        from apibase.graphql.fields import _filter_needs_distinct
+
+        filter_field = FanOutCharFilter(field_name="tags__name")
+        model = MagicMock()
+        m2m_field = create_mock_field(many_to_many=True, one_to_many=False)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("apibase.graphql.fields.get_field_parts", lambda m, f: [m2m_field])
+            result = _filter_needs_distinct(filter_field, model)
+
+        assert result is False
+
     def test_reverse_fk_field_returns_true(self):
         """Reverse FK field filter (one_to_many) should return True."""
         from apibase.graphql.fields import _filter_needs_distinct

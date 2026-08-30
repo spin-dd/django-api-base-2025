@@ -4,7 +4,7 @@ https://django-filter.readthedocs.io/en/stable/
 
 import operator
 import re
-from functools import reduce
+from functools import cache, reduce
 
 from django import forms
 from django.db.models import IntegerField, Q
@@ -110,6 +110,74 @@ class BaseFilter(django_filters.FilterSet):
         field_name="id",
         exclude=True,
     )
+
+
+def fan_out_base(queryset):
+    """Return a clean base queryset for evaluating a multi-value relation."""
+    return queryset.model._default_manager.all()
+
+
+def fold_fan_out(queryset, matched, *, values_path="pk"):
+    """Apply matched parent keys through a non-correlated subquery."""
+    return queryset.filter(pk__in=matched.values(values_path))
+
+
+class FanOutFilterMixin(django_filters.Filter):
+    """Fold a multi-value relation without DISTINCT on the outer queryset."""
+
+    folds_fan_out = True
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("distinct", False)
+        super().__init__(*args, **kwargs)
+
+    def filter(self, queryset, value):
+        if value in django_filters.constants.EMPTY_VALUES:
+            return queryset
+        base = fan_out_base(queryset)
+        matched = super().filter(base, value)
+        if matched is base:
+            return queryset
+        return fold_fan_out(queryset, matched)
+
+
+class FanOutCharFilter(FanOutFilterMixin, django_filters.CharFilter):
+    """Fan-out-folding character filter."""
+
+
+class FanOutWordFilter(FanOutFilterMixin, WordFilter):
+    """Fan-out-folding width-aware word filter."""
+
+
+class FanOutModelChoiceFilter(FanOutFilterMixin, django_filters.ModelChoiceFilter):
+    """Fan-out-folding model choice filter."""
+
+
+class FanOutModelMultipleChoiceFilter(FanOutFilterMixin, django_filters.ModelMultipleChoiceFilter):
+    """Fan-out-folding model multiple-choice filter."""
+
+
+class FanOutDateFromToRangeFilter(FanOutFilterMixin, django_filters.DateFromToRangeFilter):
+    """Fan-out-folding date range filter."""
+
+
+@cache
+def fan_out_filter_class(filter_class):
+    """Return a stable fan-out-folding subclass of ``filter_class``."""
+    return type(f"FanOut{filter_class.__name__}", (FanOutFilterMixin, filter_class), {})
+
+
+class FanOutBaseFilter(BaseFilter):
+    """Opt-in FilterSet base that folds generated multi-value relations."""
+
+    @classmethod
+    def filter_for_lookup(cls, field, lookup_type):
+        filter_class, params = super().filter_for_lookup(field, lookup_type)
+        if filter_class is None:
+            return filter_class, params
+        if getattr(field, "many_to_many", False) or getattr(field, "one_to_many", False):
+            return fan_out_filter_class(filter_class), params
+        return filter_class, params
 
 
 class AllValuesMultipleFilter(django_filters.AllValuesMultipleFilter):

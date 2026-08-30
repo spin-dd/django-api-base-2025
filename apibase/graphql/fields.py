@@ -16,6 +16,12 @@ def _filter_needs_distinct(filter_field, model):
     Returns:
         True if the filter needs distinct(), False otherwise
     """
+    # A fan-out filter evaluates the relation inside a pk subquery. Its
+    # ``field_name`` still traverses M2M/reverse-FK metadata, but the outer
+    # queryset no longer owns that join and must not pay DISTINCT again.
+    if getattr(filter_field, "folds_fan_out", False) is True:
+        return False
+
     # Layer 1: Explicit distinct flag
     if getattr(filter_field, "distinct", False):
         return True
