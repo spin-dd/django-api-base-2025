@@ -90,7 +90,7 @@ class CustomerFilter(BaseFilter):
 class CustomerFilter(BaseFilter):
     search = WordFilter(
         lookups=['name', 'email'],
-        lookup_expr='icontains',  # 大文字小文字を無視
+        lookup_expr='icontains',  # 大文字小文字を無視（既定）
     )
 ```
 

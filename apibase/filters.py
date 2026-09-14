@@ -23,10 +23,21 @@ SPACES = r"[\s\u3000,]+"
 
 
 class WordFilter(django_filters.CharFilter):
+    """Search words across one or more fields with width-normalized candidates.
+
+    ``field_name`` is the single-field default for ``lookups``. A declaration
+    without either search target fails immediately instead of waiting for the
+    first request to call ``reduce()`` with an empty iterable.
+    """
+
     def __init__(self, *args, lookups=None, delimiters=None, **kwargs):
-        self.lookups = lookups or []
+        field_name = kwargs.get("field_name", args[0] if args else None)
+        resolved_lookups = [field_name] if lookups is None and field_name else lookups
+        self.lookups = list(resolved_lookups or [])
+        if not self.lookups:
+            raise ValueError("WordFilter requires lookups or field_name")
         self.delimiters = delimiters or SPACES
-        kwargs["lookup_expr"] = kwargs.get("lookup_expr", "contains")
+        kwargs.setdefault("lookup_expr", "icontains")
         super().__init__(*args, **kwargs)
 
     def filter(self, qs, value):
@@ -38,13 +49,15 @@ class WordFilter(django_filters.CharFilter):
             # 生の入力も候補に残す。zen2han / han2zen は語全体へ一律に掛かるため、
             # 1 語の中で幅が混ざる値 (半角 ASCII/数字 + 全角カナ: `太平ビル2号館`
             # `ABCビル`) はどちらの変換結果にも一致せず、格納値をそのまま打っても
-            # 0 件になる。set なので単一表記の値では要素が増えず、LIKE が増えるのは
-            # 今まさに 0 件になっている混在入力のときだけ。
-            vals = {
-                val,
-                jaconv.zen2han(val, ascii=True, kana=True, digit=True),
-                jaconv.han2zen(val, ascii=True, kana=True, digit=True),
-            }
+            # 0 件になる。入力順を保った重複排除なので単一表記の値では要素が増えず、
+            # LIKE が増えるのは今まさに 0 件になっている混在入力のときだけ。
+            vals = dict.fromkeys(
+                [
+                    val,
+                    jaconv.zen2han(val, ascii=True, kana=True, digit=True),
+                    jaconv.han2zen(val, ascii=True, kana=True, digit=True),
+                ]
+            )
             return reduce(operator.or_, (Q(**{key: v}) for v in vals))
 
         vals = re.split(self.delimiters, value)

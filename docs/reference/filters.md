@@ -77,9 +77,9 @@ from apibase.filters import WordFilter
 
 | 引数 | 型 | デフォルト | 説明 |
 |-----|-----|----------|------|
-| `lookups` | `list[str]` | `[]` | 検索対象フィールドのリスト |
+| `lookups` | `list[str]` | `[field_name]` | 検索対象フィールドのリスト。空リストは不可 |
 | `delimiters` | `str` | `r"[\s\u3000,]+"` | 区切り文字の正規表現 |
-| `lookup_expr` | `str` | `"contains"` | ルックアップ式 |
+| `lookup_expr` | `str` | `"icontains"` | ルックアップ式 |
 
 **動作**
 
@@ -87,6 +87,11 @@ from apibase.filters import WordFilter
 2. 各単語を全角/半角両方で検索
 3. 複数単語はAND条件
 4. 各フィールドはOR条件
+
+単一フィールドでは `WordFilter(field_name="name")` と書けます。`lookups` と
+`field_name` の両方が無い場合、または空の `lookups` を明示した場合は、初期化時に
+`ValueError` になります。各語の候補は入力そのまま、半角化、全角化の順で重複を除き、
+Python の hash seed によらず同じ SQL 条件順を保ちます。
 
 **使用例**
 

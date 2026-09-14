@@ -117,15 +117,21 @@ class ProductFilter(BaseFilter):
 
 ### WordFilterが動作しない
 
-**原因**: `lookups`が設定されていない
+**原因**: `lookups` と `field_name` のどちらにも検索先が設定されていない
 
 **解決策**:
 
 ```python
+# 1 フィールド
+search = WordFilter(field_name='name')
+
+# 複数フィールド
 search = WordFilter(
-    lookups=['name', 'description'],  # 必ず設定
+    lookups=['name', 'description'],
 )
 ```
+
+検索先が無い宣言は初期化時に `ValueError` になります。
 
 ## GraphQL関連
 
