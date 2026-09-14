@@ -1,6 +1,10 @@
 """Tests for `apibase.filters` (FIL-001 BaseFilter id filters, FIL-003 WordFilter,
 FIL-009 clone_filter_fields)."""
 
+import os
+import subprocess
+import sys
+
 from django.http import QueryDict
 
 import django_filters
@@ -33,6 +37,14 @@ class _WordFilterSet(django_filters.FilterSet):
         fields: list[str] = []
 
 
+class _WordFilterSetUsingFieldName(django_filters.FilterSet):
+    word = WordFilter(field_name="name")
+
+    class Meta:
+        model = Parent
+        fields: list[str] = []
+
+
 def _names(qs):
     return sorted(p.name for p in qs)
 
@@ -51,6 +63,52 @@ def test_word_filter_matches_across_width(stored, query):
     result = _WordFilterSet({"word": query}, queryset=Parent.objects.all()).qs
 
     assert _names(result) == [stored]
+
+
+def test_word_filter_uses_field_name_when_lookups_are_omitted():
+    Parent.objects.create(name="Alpha")
+    Parent.objects.create(name="Beta")
+
+    result = _WordFilterSetUsingFieldName({"word": "alpha"}, queryset=Parent.objects.all()).qs
+
+    assert _names(result) == ["Alpha"]
+
+
+@pytest.mark.parametrize("kwargs", ({}, {"lookups": []}))
+def test_word_filter_rejects_an_empty_lookup_set_at_declaration(kwargs):
+    with pytest.raises(ValueError, match="lookups or field_name"):
+        WordFilter(**kwargs)
+
+
+def test_word_filter_defaults_to_icontains_without_overriding_an_explicit_lookup():
+    assert WordFilter(lookups=["name"]).lookup_expr == "icontains"
+    assert WordFilter(lookups=["name"], lookup_expr="exact").lookup_expr == "exact"
+
+
+def test_word_filter_sql_order_is_stable_across_python_hash_seeds():
+    script = """
+import django
+django.setup()
+from apibase.filters import WordFilter
+from tests.models import Parent
+queryset = WordFilter(lookups=["name"]).filter(Parent.objects.all(), "ABCビル")
+print(queryset.query)
+"""
+    sql_by_seed = []
+    for seed in ("1", "2", "3", "4"):
+        env = {**os.environ, "DJANGO_SETTINGS_MODULE": "tests.settings"}
+        env["PYTHONHASHSEED"] = seed
+        sql_by_seed.append(subprocess.check_output([sys.executable, "-c", script], env=env, text=True).strip())
+
+    assert len(set(sql_by_seed)) == 1
+    sql = sql_by_seed[0]
+    assert sql.index("%ABCビル%") < sql.index("%ABCﾋﾞﾙ%") < sql.index("%ＡＢＣビル%")
+
+
+def test_word_filter_deduplicates_equivalent_width_candidates():
+    queryset = WordFilter(lookups=["name"]).filter(Parent.objects.all(), "ABC")
+
+    assert str(queryset.query).count(" LIKE ") == 2
 
 
 @pytest.mark.parametrize(

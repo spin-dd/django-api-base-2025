@@ -74,6 +74,15 @@ class CustomerFilter(BaseFilter):
         fields = {}
 ```
 
+1 フィールドだけを検索する場合は `field_name` が検索先になります。
+
+```python
+name = WordFilter(field_name='name')
+```
+
+`lookups` と `field_name` の両方が無い宣言、または空の `lookups` は初期化時に
+`ValueError` になります。最初のリクエストまで設定漏れを持ち越しません。
+
 ### 動作
 
 - スペース区切りで複数キーワードをAND検索
@@ -103,10 +112,13 @@ curl "http://localhost:8000/api/customers/?search=山田 東京"
 WordFilter(
     label='検索',
     lookups=['name', 'email'],
-    lookup_expr='icontains',  # 大文字小文字無視 (デフォルト: contains)
+    lookup_expr='icontains',  # 大文字小文字無視（既定）
     delimiters=r'[\s\u3000,]+',  # 区切り文字の正規表現
 )
 ```
+
+各語の候補は入力そのまま、半角化、全角化の順で重複を除きます。この順序は
+`PYTHONHASHSEED` によらず一定なので、同じ入力は同じ SQL 条件順になります。
 
 ## ListCharInFilter / ListIntegerInFilter
 
