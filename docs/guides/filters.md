@@ -55,6 +55,12 @@ class ProductFilter(FanOutBaseFilter):
 空入力と空の複数選択は queryset を変更しません。GraphQL も fan-out filter の marker を読み、
 同じ外側 queryset へ `DISTINCT` を重ねません。
 
+`method` を持つフィルタは、`field_name` が M2M・reverse FK を跨いでいても `field_name` から
+`DISTINCT` を決めません。django-filter は `field_name` を method へ渡すだけで lookup を組まない
+ためです。GraphQL は method が組み上げたクエリの JOIN を見て、M2M・reverse FK・
+GenericRelation を JOIN していれば `DISTINCT` を掛けます。`EXISTS` やサブクエリで評価する
+method には掛けません。
+
 ## WordFilter
 
 日本語検索に対応したフィルタです。全角・半角を自動的に変換して検索します。

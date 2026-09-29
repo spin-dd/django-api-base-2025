@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 
@@ -70,6 +72,8 @@ class Vendor(models.Model):
     objects = SoftDeleteManager()
     all_objects = models.Manager()
 
+    notes = GenericRelation("VendorNote")
+
     class Meta:
         app_label = "tests"
 
@@ -79,6 +83,18 @@ class VendorTag(models.Model):
 
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, related_name="tags")
     name = models.CharField(max_length=100)
+
+    class Meta:
+        app_label = "tests"
+
+
+class VendorNote(models.Model):
+    """Generic child of Vendor — joining a GenericRelation fans out like a reverse FK."""
+
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey()
+    text = models.CharField(max_length=100)
 
     class Meta:
         app_label = "tests"

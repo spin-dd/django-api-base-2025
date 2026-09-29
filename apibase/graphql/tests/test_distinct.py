@@ -149,6 +149,22 @@ class TestFilterNeedsDistinct:
 
         assert result is False
 
+    def test_method_filter_across_a_reverse_fk_returns_false(self):
+        """A method filter's field_name is not a lookup, so it does not imply a join.
+
+        The join fallback in _needs_distinct judges the query the method builds.
+        """
+        from apibase.graphql.fields import _filter_needs_distinct
+
+        filter_field = create_mock_filter("comments__text", distinct=False, method="filter_custom")
+        reverse_fk_field = create_mock_field(many_to_many=False, one_to_many=True)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("apibase.graphql.fields.get_field_parts", lambda m, f: [reverse_fk_field])
+            result = _filter_needs_distinct(filter_field, MagicMock())
+
+        assert result is False
+
     def test_method_filter_with_distinct_returns_true(self):
         """Method filter with distinct=True should return True."""
         from apibase.graphql.fields import _filter_needs_distinct

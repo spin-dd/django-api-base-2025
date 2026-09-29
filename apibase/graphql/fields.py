@@ -1,4 +1,6 @@
 # https://docs.graphene-python.org/projects/django/en/latest/queries/
+from django.db.models import ForeignObjectRel
+
 from django_filters.utils import get_field_parts
 from graphene_django.filter import DjangoFilterConnectionField
 
@@ -25,6 +27,13 @@ def _filter_needs_distinct(filter_field, model):
     # Layer 1: Explicit distinct flag
     if getattr(filter_field, "distinct", False):
         return True
+
+    # A ``method`` filter only receives ``field_name`` as an argument; django-filter
+    # never builds a lookup from it. The method may evaluate the relation in an
+    # EXISTS or a subquery, which adds no rows, so only the query it builds can tell.
+    # ``_needs_distinct`` falls back to inspecting that query's joins.
+    if getattr(filter_field, "method", None) is not None:
+        return False
 
     # Layer 2: Analyze field path for M2M or reverse FK relationships
     field_name = getattr(filter_field, "field_name", None)
@@ -60,6 +69,11 @@ def _queryset_has_duplicating_joins(qs):
                 if getattr(join_field, "many_to_many", False):
                     return True
                 if getattr(join_field, "one_to_many", False):
+                    return True
+                # A GenericRelation joins through GenericRel, which mirrors the
+                # relation field's flags and reports many-to-one, yet it fans out
+                # like a reverse FK. Only a one-to-one reverse keeps one row.
+                if isinstance(join_field, ForeignObjectRel) and not join_field.one_to_one:
                     return True
         return False
     except Exception:
