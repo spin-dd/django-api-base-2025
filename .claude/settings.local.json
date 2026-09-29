@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace status)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace log --oneline -5)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace diff plugins/codex-toolkit/commands/codex-review.md)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace add plugins/base/skills/python-devenv-setup/)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace log --oneline -3)",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace commit -m \"feat\\(base\\): add python-devenv-setup skill\")",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace commit --allow-empty -m \"version: up\")",
+      "Bash(git -C ~/ghq/github.com/eotel/claude-marketplace push)",
+      "Bash(tree:*)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base log --oneline -20)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base show 57b7e81)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base log --all --grep=\"distinct\" --oneline)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base show dd55276 --stat)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base show a09858b --stat)",
+      "mcp__plugin_claude-mem_mcp-search__get_observations",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base-2025 status)",
+      "Bash(git -C /Users/eotel/ghq/github.com/spin-dd/django-api-base-2025 branch:*)",
+      "Bash(gh api:*)",
+      "Skill(commit-commands:commit-push-pr)"
+    ]
+  }
+}

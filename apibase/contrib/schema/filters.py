@@ -2,18 +2,18 @@
 https://django-filter.readthedocs.io/en/master/
 """
 
-from apibase.filters import BaseFilter
+from apibase.filters import BaseFilter, FanOutBaseFilter
 
 from .. import models
 
 
-class UserFilter(BaseFilter):
+class UserFilter(FanOutBaseFilter):
     class Meta:
         model = models.User
         exclude = [""]
 
 
-class GroupFilter(BaseFilter):
+class GroupFilter(FanOutBaseFilter):
     class Meta:
         model = models.Group
         exclude = [""]

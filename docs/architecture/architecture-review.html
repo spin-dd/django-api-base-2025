@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>アーキテクチャレビュー · apibase</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose", flowchart: { curve: "basis" } });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 5 4; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .faded { opacity: .38; }
+      .grain { background-image: radial-gradient(#0000000a 1px, transparent 1px); background-size: 16px 16px; }
+      mark.leak { background: #fee2e2; color: #991b1b; padding: 0 .25rem; border-radius: .25rem; }
+      .chip { letter-spacing: .04em; }
+      details > summary { list-style: none; cursor: pointer; }
+      details > summary::-webkit-details-marker { display: none; }
+      body { font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 grain">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- HEADER -->
+      <header class="space-y-6">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+          <h1 class="text-4xl font-serif tracking-tight">アーキテクチャレビュー · <span class="text-emerald-700">apibase</span></h1>
+          <p class="text-sm text-slate-500 font-mono">2026-06-18 · 深さの観点</p>
+        </div>
+        <p class="text-slate-600 max-w-3xl leading-relaxed">
+          DRF + Graphene の拡張ライブラリ。7 つのサブシステムを並列リーダーで調査し、
+          各候補を敵対的な<em>削除テスト</em>にかけた。以下の判定はあえて辛口になっている。
+          小規模ライブラリに対してファインダーが提案する「深化」の多くは、複雑さを<strong>集約</strong>するのではなく
+          <strong>移動</strong>させるだけだからだ。生き残ったのは、短く正直なリストである。
+        </p>
+
+        <!-- methodology strip -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+          <div class="rounded-lg bg-white border border-slate-200 p-3">
+            <div class="text-3xl font-serif text-slate-800">21</div>
+            <div class="text-xs tracking-wider text-slate-500">調査した候補</div>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 p-3">
+            <div class="text-3xl font-serif text-red-700">18</div>
+            <div class="text-xs tracking-wider text-slate-500">削除テストで却下</div>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 p-3">
+            <div class="text-3xl font-serif text-emerald-700">2</div>
+            <div class="text-xs tracking-wider text-slate-500">実体のある深化</div>
+          </div>
+          <div class="rounded-lg bg-white border border-slate-200 p-3">
+            <div class="text-3xl font-serif text-amber-700">5</div>
+            <div class="text-xs tracking-wider text-slate-500">消えるモジュール</div>
+          </div>
+        </div>
+
+        <!-- legend -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-600 border-t border-slate-200 pt-4">
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 border-2 border-slate-700 bg-white"></span> モジュール</span>
+          <span class="flex items-center gap-2"><svg width="34" height="8"><line x1="0" y1="4" x2="34" y2="4" class="seam" stroke="#475569" stroke-width="2"/></svg> シーム</span>
+          <span class="flex items-center gap-2"><svg width="34" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#dc2626" stroke-width="2"/><path d="M28,1 L34,5 L28,9 Z" fill="#dc2626"/></svg> 漏れ／逆転</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 deep rounded-sm"></span> 深いモジュール</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-4 bg-white border-2 border-slate-300 faded"></span> デッド／未配線</span>
+        </div>
+
+        <!-- strength key -->
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="chip px-2 py-1 rounded bg-emerald-100 text-emerald-800 font-semibold">強く推奨</span>
+          <span class="chip px-2 py-1 rounded bg-amber-100 text-amber-800 font-semibold">要検討</span>
+          <span class="chip px-2 py-1 rounded bg-slate-200 text-slate-700 font-semibold">推測的</span>
+          <span class="text-slate-400 self-center">各カードの推奨度</span>
+        </div>
+      </header>
+
+      <!-- CANDIDATES -->
+      <section id="candidates" class="space-y-10">
+
+        <!-- CANDIDATE 1 : IDENTITY -->
+        <article id="c-identity" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <h2 class="text-2xl font-serif">1 · オブジェクトの<em>アイデンティティ</em>を 1 つの深いモジュールに集約する</h2>
+              <div class="flex gap-2 shrink-0">
+                <span class="chip px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">強く推奨</span>
+                <span class="chip px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">ポート＆アダプター</span>
+              </div>
+            </div>
+            <p class="font-mono text-xs text-slate-500">
+              apibase/serializers.py:36–99 &nbsp;·&nbsp; apibase/graphql/mixins.py:8,23–33 &nbsp;·&nbsp; apibase/urn.py:11–17
+            </p>
+
+            <!-- before / after : mermaid graph -->
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+                <div class="text-xs tracking-wider text-red-600 font-semibold mb-2">Before · 1 つの概念、2 つのインターフェース、逆方向の参照</div>
+                <pre class="mermaid">
+flowchart TB
+  subgraph REST["serializers モジュール"]
+    EF["EndpointField.to_representation"]
+    UF["UrnField.to_representation"]
+    DF["DisplayField.to_representation"]
+    H1["drf_endpoint()"]
+    H2["to_urn()"]
+  end
+  subgraph GQL["graphql.mixins モジュール"]
+    RE["resolve_endpoint"]
+    RU["resolve_urn"]
+    RD["resolve_display"]
+  end
+  EF --> H1
+  UF --> H2
+  RE -. 逆参照 .-> H1
+  RU -. 逆参照 .-> H2
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#991b1b;
+  class RE,RU leak
+  class H1,H2 leak
+                </pre>
+                <p class="text-xs text-slate-500 mt-2">同じ <code>urn / endpoint / display</code> が 2 回計算されている。GraphQL は 2 つのヘルパーを借りるためだけに
+                serializers モジュールを import している（<code>from .. import serializers</code>）。これはレイヤリングの逆転だ。
+                <code>build_absolute_uri</code> は両側で再実装されている。</p>
+              </div>
+              <div class="rounded-lg border border-slate-300 bg-white p-4">
+                <div class="text-xs tracking-wider text-emerald-700 font-semibold mb-2">After · 1 つの深いモジュール、2 つの薄いアダプター</div>
+                <pre class="mermaid">
+flowchart TB
+  ID["ModelIdentity<br/>urn · endpoint · display<br/>+ uri-builder シーム経由の絶対 URI"]:::deep
+  subgraph REST2["serializers（表示層）"]
+    EF2["EndpointField / UrnField / DisplayField"]
+  end
+  subgraph GQL2["graphql.mixins（表示層）"]
+    RR["resolve_endpoint / resolve_urn / resolve_display"]
+  end
+  EF2 --> ID
+  RR --> ID
+  classDef deep fill:#0f172a,stroke:#0f172a,color:#fff;
+                </pre>
+                <p class="text-xs text-slate-500 mt-2">DRF の request と graphene の <code>info.context</code> が、1 つの <code>uri-builder</code>
+                シームに対する 2 つの実アダプターになる。graphql→serializers の依存辺は消える。</p>
+              </div>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <p><span class="font-semibold text-slate-700">問題。</span>「このオブジェクトの公開アイデンティティとは何か」は 1 つの概念だが、インターフェースを持たないためサブシステムごとに再実装されている。</p>
+              <p><span class="font-semibold text-slate-700">解決。</span><code>urn.model_urn</code> を小さな <code>ModelIdentity</code> モジュールへ昇格させ、urn・endpoint・display と絶対 URI を所有させ、uri-builder を抽象化する。</p>
+            </div>
+            <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">レバレッジ</span><br/>1 つのインターフェースを REST と GraphQL の両方が呼ぶ</li>
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">局所性</span><br/>urn/endpoint の形式変更が 1 か所で済む</li>
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">テスト</span><br/>純粋関数。Field のライフサイクルも resolver も不要</li>
+            </ul>
+            <p class="text-sm"><span class="font-semibold">シームを正当化する 2 つのアダプター：</span>REST の <code>request.build_absolute_uri</code>、GraphQL の <code>info.context.build_absolute_uri</code>。このシームは仮想ではなく実在する。</p>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 2 : SPECTACULAR -->
+        <article id="c-spectacular" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <h2 class="text-2xl font-serif">2 · ドリフトした 2 つのスタブではなく、<em>drf-spectacular</em> アダプターを 1 つに</h2>
+              <div class="flex gap-2 shrink-0">
+                <span class="chip px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">強く推奨</span>
+                <span class="chip px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">ローカル置換可能</span>
+              </div>
+            </div>
+            <p class="font-mono text-xs text-slate-500">apibase/serializers.py:16–33 &nbsp;·&nbsp; apibase/viewsets.py:21–37</p>
+
+            <!-- before / after : hand-built mass / drift -->
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="rounded-lg border border-slate-200 bg-stone-50 p-4 space-y-3">
+                <div class="text-xs tracking-wider text-red-600 font-semibold">Before · 同じシームを 2 回スタブし、すでにドリフトしている</div>
+                <div class="space-y-3">
+                  <div class="border-2 border-slate-300 bg-white rounded p-3">
+                    <div class="text-xs tracking-wider text-slate-500">serializers.py の try/except</div>
+                    <ul class="font-mono text-[11px] text-slate-700 mt-1 space-y-0.5">
+                      <li>extend_schema_field</li>
+                      <li><mark class="leak">OpenApiTypes { URI, STR }</mark></li>
+                      <li><mark class="leak">HAS_DRF_SPECTACULAR</mark> &nbsp;<span class="text-slate-400">（どこからも参照されない）</span></li>
+                    </ul>
+                  </div>
+                  <div class="border-2 border-slate-300 bg-white rounded p-3">
+                    <div class="text-xs tracking-wider text-slate-500">viewsets.py の try/except</div>
+                    <ul class="font-mono text-[11px] text-slate-700 mt-1 space-y-0.5">
+                      <li>extend_schema · OpenApiParameter</li>
+                      <li><mark class="leak">OpenApiTypes { STR }</mark> &nbsp;<span class="text-slate-400">（URI がない）</span></li>
+                      <li><span class="text-slate-400">フラグなし</span></li>
+                    </ul>
+                  </div>
+                  <p class="text-xs text-red-700">⚠ <code>OpenApiTypes</code> は、どのモジュールが import したかで 2 つの異なる意味を持つ。</p>
+                </div>
+              </div>
+              <div class="rounded-lg border border-slate-300 bg-white p-4 space-y-3">
+                <div class="text-xs tracking-wider text-emerald-700 font-semibold">After · 1 つのアダプターがスタブを一度だけ定義する</div>
+                <div class="deep text-white rounded p-3">
+                  <div class="text-xs tracking-wider text-slate-300">apibase/_spectacular.py</div>
+                  <ul class="font-mono text-[11px] mt-1 space-y-0.5">
+                    <li>extend_schema · extend_schema_field</li>
+                    <li>OpenApiParameter · OpenApiTypes { URI, STR }</li>
+                    <li>HAS_DRF_SPECTACULAR</li>
+                  </ul>
+                </div>
+                <div class="flex gap-3">
+                  <div class="flex-1 border border-slate-200 rounded p-2 text-center text-xs text-slate-500">serializers<br/><span class="font-mono">import</span></div>
+                  <div class="flex-1 border border-slate-200 rounded p-2 text-center text-xs text-slate-500">viewsets<br/><span class="font-mono">import</span></div>
+                </div>
+                <p class="text-xs text-slate-500">シームをまたぐ 2 つの実アダプター、ライブラリがインストール済みか否か。定義は 1 つで、両条件下での import をテストできる。</p>
+              </div>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <p><span class="font-semibold text-slate-700">問題。</span>optional 依存のシームは実在するが、すでにドリフトした 2 つのモジュールで個別にスタブされている。</p>
+              <p><span class="font-semibold text-slate-700">解決。</span>1 つの <code>_spectacular</code> アダプターが import を一度だけ行い、安定した表面を export する。両モジュールはそれを import する。</p>
+            </div>
+            <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">局所性</span><br/>スタブ表面の定義が 1 つ</li>
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">レバレッジ</span><br/>将来デコレートするモジュールは再スタブせず import するだけ</li>
+              <li class="rounded bg-emerald-50 border border-emerald-100 px-3 py-2"><span class="chip text-emerald-700 font-semibold">テスト</span><br/>「spectacular の有無で挙動が同じか」を一度テストできる</li>
+            </ul>
+            <p class="text-sm text-emerald-800">最もリスクの低い最初の一手。機械的な抽出で、現に発生しているドリフト系バグの一群も同時に潰せる。</p>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 3 : NESTED RELATION RESOLUTION -->
+        <article id="c-nested" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <h2 class="text-2xl font-serif">3 · ネストリレーションの解決を<em>その場で</em>集約する</h2>
+              <div class="flex gap-2 shrink-0">
+                <span class="chip px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-semibold">要検討</span>
+                <span class="chip px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">プロセス内</span>
+              </div>
+            </div>
+            <p class="font-mono text-xs text-slate-500">apibase/serializers.py:162–163 &nbsp;·&nbsp; apibase/serializers.py:277–293</p>
+
+            <!-- before/after : call-graph collapse of duplication -->
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+                <div class="text-xs tracking-wider text-red-600 font-semibold mb-2">Before · <code>_set</code> 除去 + <code>get_field</code> のルールが 2 か所にある</div>
+                <div class="space-y-3">
+                  <div class="border-2 border-slate-300 bg-white rounded p-3">
+                    <div class="text-xs text-slate-500 mb-1">BaseModelSerializer.update_nested &nbsp;<span class="font-mono">:277</span></div>
+                    <pre class="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">name = re.sub(r"(.+)(_set)$", …, field_name)
+related = model._meta.get_field(name)</pre>
+                  </div>
+                  <div class="text-center text-xs text-red-600">▲ 同一の規約 ▼</div>
+                  <div class="border-2 border-slate-300 bg-white rounded p-3">
+                    <div class="text-xs text-slate-500 mb-1">NestedOrphanDeleteMixin._resolve_nested_related_field &nbsp;<span class="font-mono">:162</span></div>
+                    <pre class="font-mono text-[11px] text-slate-700 whitespace-pre-wrap">name = re.sub(r"(.+)(_set)$", …, field_name)
+return model._meta.get_field(name)</pre>
+                  </div>
+                </div>
+              </div>
+              <div class="rounded-lg border border-slate-300 bg-white p-4">
+                <div class="text-xs tracking-wider text-emerald-700 font-semibold mb-2">After · 1 つの解決関数、2 つの呼び出し元</div>
+                <div class="space-y-3">
+                  <div class="deep text-white rounded p-3">
+                    <div class="text-xs text-slate-300 mb-1">_resolve_nested_related_field()</div>
+                    <pre class="font-mono text-[11px] whitespace-pre-wrap">strip _set → _meta.get_field</pre>
+                  </div>
+                  <div class="flex gap-3">
+                    <div class="flex-1 border border-slate-200 rounded p-2 text-center text-xs text-slate-500">update_nested</div>
+                    <div class="flex-1 border border-slate-200 rounded p-2 text-center text-xs text-slate-500">孤児削除 mixin</div>
+                  </div>
+                  <div class="border border-slate-200 rounded p-2 text-center text-xs text-slate-500">+ FK / 逆 FK / GenericRelation の分岐用に、任意で <code>_nested_defaults(rel, instance)</code></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- rejected scope callout -->
+            <div class="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
+              <span class="font-semibold">スコープ注意。大きい版は却下された。</span>
+              あるファインダーは、プラガブルな <code>Simple</code>／<code>OrphanDelete</code> 戦略を備えた完全な
+              <code>NestedFieldStrategy</code> + <code>RelationResolver</code> プロトコルを提案した。敵対的レビューはこれを却下した。
+              孤児削除のシームは<em>すでに</em>存在して機能しており（<code>update_nested_field</code> の MRO オーバーライドという実在の第 2 アダプター）、
+              戦略レイヤーは複雑さを 3〜4 個の新クラスへ<strong>移動</strong>させるだけで、<code>RelationResolver</code> は単一アダプターの仮想シームだ。
+              <code>_children_set</code> を見られない戦略オブジェクトは、PATCH の「未指定 vs 空」のセマンティクスを静かに壊す。
+              <strong>この候補は小さく保つこと。</strong>解決関数を重複排除し、MRO シームには手を付けない。
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <p><span class="font-semibold text-slate-700">問題。</span>逆 FK の命名規約が 2 つのメソッドで重複しており、片方を変えるともう片方を忘れやすい。</p>
+              <p><span class="font-semibold text-slate-700">解決。</span>両者が呼ぶ private な解決関数を 1 つに。任意で、リレーション種別の分岐用に <code>_nested_defaults</code> メソッドを 1 つ。</p>
+            </div>
+            <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">局所性</span><br/><code>_set</code> 規約が 1 か所に</li>
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">レバレッジ</span><br/>真の集約。実在する呼び出し元が 2 つ</li>
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">テスト</span><br/>既存の孤児削除テストは緑のまま</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 4 : AUTHORIZATION -->
+        <article id="c-authz" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <h2 class="text-2xl font-serif">4 · <em>認可</em>の判定を 1 つの述語に統一する</h2>
+              <div class="flex gap-2 shrink-0">
+                <span class="chip px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-semibold">要検討</span>
+                <span class="chip px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">ポート＆アダプター</span>
+              </div>
+            </div>
+            <p class="font-mono text-xs text-slate-500">apibase/permissions.py:9–19, 40–59 &nbsp;·&nbsp; apibase/viewsets.py:43–56</p>
+
+            <!-- divergence table -->
+            <div class="rounded-lg border border-slate-200 bg-stone-50 p-4">
+              <div class="text-xs tracking-wider text-red-600 font-semibold mb-3">Before · 1 つの問い、4 つの答え、しかも食い違う</div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm border-collapse">
+                  <thead>
+                    <tr class="text-xs tracking-wider text-slate-500">
+                      <th class="text-left py-1 pr-4">形態</th>
+                      <th class="px-2">has_perm</th>
+                      <th class="px-2">PRIVATE</th>
+                      <th class="px-2">SAFE_METHODS</th>
+                      <th class="px-2">is_staff</th>
+                    </tr>
+                  </thead>
+                  <tbody class="font-mono text-[12px]">
+                    <tr class="border-t border-slate-200"><td class="py-1.5 pr-4">has_perms（デコレーター）</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-red-500">✘</td><td class="text-center text-red-500">✘</td><td class="text-center text-red-500">✘</td></tr>
+                    <tr class="border-t border-slate-200"><td class="py-1.5 pr-4">check_info（gql）</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-red-500">✘</td><td class="text-center text-red-500">✘</td><td class="text-center text-red-500">✘</td></tr>
+                    <tr class="border-t border-slate-200"><td class="py-1.5 pr-4">has_permission（REST）</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-red-500">✘</td></tr>
+                    <tr class="border-t border-slate-200"><td class="py-1.5 pr-4">has_query_permission（gql）</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-emerald-600">✔</td><td class="text-center text-red-500">✘</td><td class="text-center text-emerald-600">✔</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-xs text-red-700 mt-3">REST は <code>SAFE_METHODS</code> を尊重するが <code>is_staff</code> を見ない。GraphQL は <code>is_staff</code> を見るが <code>SAFE_METHODS</code> を見ない。<code>check_info</code> は <code>PRIVATE</code> を完全に無視する。「REST では許可、GraphQL では拒否」が偶発的に生まれる。</p>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <div class="text-xs tracking-wider text-emerald-700 font-semibold mb-2">After · 1 つの判定、2 つのトランスポートアダプター</div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <div class="deep text-white rounded p-3 text-center text-xs">can(user, perm, *, method, private)<br/><span class="text-slate-300">PRIVATE · SAFE_METHODS · is_staff · has_perm</span></div>
+                <span class="text-slate-400">←</span>
+                <div class="border border-slate-200 rounded p-2 text-xs text-slate-500">DRF request アダプター</div>
+                <div class="border border-slate-200 rounded p-2 text-xs text-slate-500">graphene info アダプター</div>
+              </div>
+            </div>
+
+            <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+              <span class="font-semibold">注意。</span>これらのメソッドはリポジトリ内に<em>呼び出し元が 1 つもない</em>。下流プロジェクト向けの拡張ポイントだ。シームは概念上は実在する（2 つのトランスポート）が、リポジトリ内では未行使。そのため確度は「要検討」で、第一歩は述語のテーブルテストになる。
+            </div>
+            <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">局所性</span><br/>「X してよいか」を定義する場所が 1 つ</li>
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">レバレッジ</span><br/>REST と GraphQL が構造的に一致する</li>
+              <li class="rounded bg-amber-50 border border-amber-100 px-3 py-2"><span class="chip text-amber-700 font-semibold">テスト</span><br/>純粋。user × perm × method × private → bool</li>
+            </ul>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 5 : DELETION-TEST FAILURES -->
+        <article id="c-delete" class="rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden">
+          <div class="p-6 space-y-5">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <h2 class="text-2xl font-serif">5 · 削除テストを本気でやる。これらのモジュールは<em>消える</em></h2>
+              <div class="flex gap-2 shrink-0">
+                <span class="chip px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-semibold">強く推奨</span>
+                <span class="chip px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-semibold">深化ではなく削減</span>
+              </div>
+            </div>
+            <p class="text-sm text-slate-600">スキルが定める判定。<em>モジュールを削除してみて、複雑さが消えるなら、それはパススルーだった。</em>
+            ここに挙げたいくつかは完全に消える。呼び出し元もテストもない。正直な「深化」は削除であり、それが残りを研ぎ澄ます。</p>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm border-collapse">
+                <thead>
+                  <tr class="text-xs tracking-wider text-slate-500 border-b border-slate-200">
+                    <th class="text-left py-2 pr-4">モジュール／表面</th>
+                    <th class="text-left px-2">ファイル</th>
+                    <th class="text-left px-2">呼び出し元</th>
+                    <th class="text-left px-2">削除テストの判定</th>
+                  </tr>
+                </thead>
+                <tbody class="text-[13px]">
+                  <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">parse_urn → rest_endpoint_from_urn → endpoint_from_urn</td><td class="px-2 font-mono text-xs">urn.py:20–56 · serializers.py:40</td><td class="px-2 text-red-600 font-semibold">0</td><td class="px-2">デッドな parse→URL チェーン（削除）</td></tr>
+                  <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">BatchListSerializer / BatchSerializerMixin</td><td class="px-2 font-mono text-xs">serializers.py:353–403</td><td class="px-2 text-red-600 font-semibold">0</td><td class="px-2"><mark class="leak">未配線</mark>。バッチ viewset は DRF 既定の ListSerializer を使う</td></tr>
+                  <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">User.all_permissions monkey-patch</td><td class="px-2 font-mono text-xs">contrib/models/models.py:7</td><td class="px-2 text-red-600 font-semibold">0</td><td class="px-2">resolver は free function を使うため、パッチはデッド</td></tr>
+                  <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">action_handlers / Action</td><td class="px-2 font-mono text-xs">serializers.py:193–221 · actions.py</td><td class="px-2 text-red-600 font-semibold">0</td><td class="px-2">推測的な機能。アダプターが存在しない</td></tr>
+                  <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">get_filename_from_header · children_set · get_children · HAS_DRF_SPECTACULAR</td><td class="px-2 font-mono text-xs">utils.py:99 · serializers.py:223–228, 21</td><td class="px-2 text-red-600 font-semibold">0</td><td class="px-2">デッドな表面（削除）</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- latent bug callout -->
+            <div class="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-900">
+              <span class="font-semibold">さらに、深化提案がいずれも見落とした潜在バグ。</span>
+              <code>DownloadMixin.response_field_data</code>（viewsets.py:111–121）は
+              <code>create_download_filefield_response(…, format=format)</code> を呼ぶが、<code>format</code> はこのメソッドの
+              引数ではなく、Python のビルトインに解決される。ストレージダウンロード経路は format が truthy だと例外になる。
+              ダウンロード経路には<strong>テストが 1 つもない</strong>ため、これまで表面化しなかった。
+            </div>
+
+            <p class="text-sm"><span class="font-semibold">これが最も価値の高い発見である理由。</span>このライブラリの本当の摩擦は浅いモジュールではなく、<em>推測的に肥大化した表面積</em>だ。パススルーを削除し、生きているシーム（filters・downloads・batch・urn）に振る舞いのテストを足すほうが、どの単一の深化よりもナビゲーション性とテスト容易性に効く。</p>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- TOP RECOMMENDATION -->
+      <section id="top-recommendation" class="rounded-2xl deep text-white p-8 space-y-4 shadow-lg">
+        <div class="chip text-emerald-300 text-sm font-semibold tracking-widest">最優先の推奨</div>
+        <h2 class="text-3xl font-serif">まず <a href="#c-spectacular" class="underline decoration-emerald-400 underline-offset-4">drf-spectacular アダプター</a>、次に <a href="#c-identity" class="underline decoration-emerald-400 underline-offset-4">アイデンティティ</a> を深化させる。</h2>
+        <p class="text-slate-300 max-w-3xl leading-relaxed">
+          spectacular アダプターは、明確に<em>「集約であって移動ではない」</em>最もリスクの低い一手だ。実在する 2 アダプターの
+          シーム（インストール済みか否か）で、すでにドリフトしており、スタブを一度だけ定義することで直る。シームを扱う
+          習慣づけのきっかけになる。要となる深化は<strong>アイデンティティ</strong>だ。重複した概念を真に深いモジュールへ変え、
+          同時にレイヤリングの逆転（graphql が serializers を逆参照している状態）を取り除く唯一の候補で、uri-builder の
+          実アダプターが 2 つある。候補 5（消えるモジュールを削除し、生きたシームをテストする）は、その両者をつなぐ
+          結合組織として扱う。ここがライブラリの局所性を最も稼げる場所だ。
+        </p>
+        <p class="text-slate-400 text-sm max-w-3xl">
+          あえて最初には推奨しないもの。ネストフィールドの「戦略」書き換え（複雑さを移動させるだけ。孤児削除シームは
+          すでに機能している）と、WordFilter／clone_filter_fields のビルダー（呼び出し元が 1 つ、仮想シーム）。
+          敵対的レビューは 3 つの大きな抽象化版をすべて却下した。
+        </p>
+      </section>
+
+      <footer class="text-center text-xs text-slate-400 pt-4">
+        7 サブシステムを調査 · 候補 21 · 敵対的削除テストで 18 を却下 · 用語は深さの観点に準拠（モジュール · インターフェース · 実装 · 深さ · シーム · アダプター · レバレッジ · 局所性）
+      </footer>
+    </main>
+  </body>
+</html>
