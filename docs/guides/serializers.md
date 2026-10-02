@@ -82,6 +82,10 @@ class BookSerializer(BaseModelSerializer):
 
 `BaseModelSerializer`は、ネストされた関連オブジェクトの作成・更新をサポートします。
 
+`create()` / `update()` は、親の保存から子の検証・保存までを1つのトランザクションで実行します。
+子の検証や保存に失敗すると、親と、それまでに作成・更新した子の変更もすべて巻き戻ります。
+`ATOMIC_REQUESTS` の設定は不要です。
+
 ### 設定
 
 ```python
@@ -115,6 +119,9 @@ class BookSerializer(BaseModelSerializer):
 ### シグナルによる通知
 
 ネストフィールドの更新後にシグナルを送信できます:
+
+シグナルはトランザクション内で送られます。メール送信など、保存の確定後に実行する処理は
+受信側で `transaction.on_commit()` に登録してください。
 
 ```python
 from django.dispatch import Signal

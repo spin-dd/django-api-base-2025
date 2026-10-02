@@ -166,24 +166,16 @@ class ProductViewSet(BaseModelViewSet):
 
 ### 自動トランザクション
 
-デフォルトでは、各操作は個別のトランザクションで実行されます。
+`BaseModelViewSet.create_batch()` / `update_batch()` は、リクエスト内の全レコードを
+1つのトランザクションで処理します。後続レコードの検証や保存が失敗した場合も、
+先に処理したレコードを含めて変更をすべて巻き戻します。`ATOMIC_REQUESTS` の設定は不要です。
 
-### 明示的なトランザクション
+この保証は ViewSet のバッチ処理にあります。ViewSet を通さず `many=True` のシリアライザを
+直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
+に含めてください。
 
-全体を1つのトランザクションにする場合:
-
-```python
-from django.db import transaction
-
-class ProductViewSet(BaseModelViewSet):
-    @transaction.atomic
-    def batch_create(self, request, *args, **kwargs):
-        return super().batch_create(request, *args, **kwargs)
-
-    @transaction.atomic
-    def batch_update(self, request, *args, **kwargs):
-        return super().batch_update(request, *args, **kwargs)
-```
+保存後のシグナルもトランザクション内で実行されます。メール送信などの外部への処理は、
+`transaction.on_commit()` で保存の確定後に実行してください。
 
 ## エラーハンドリング
 
