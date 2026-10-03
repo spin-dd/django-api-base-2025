@@ -1,7 +1,8 @@
 """A failed nested write must leave no partial database changes."""
 
 from django.db import IntegrityError
-from django.test import TransactionTestCase
+from django.dispatch import Signal
+from django.test import TransactionTestCase, override_settings
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -67,6 +68,18 @@ class TestNestedCreate(TransactionTestCase):
         self.assertEqual(
             list(parent.child_set.order_by("id").values_list("name", flat=True)), ["first child", "second child"]
         )
+
+
+@override_settings(DATABASE_ROUTERS=["tests.routers.NestedWriteRouter"])
+class TestRoutedNestedCreate(TestNestedCreate):
+    databases = {"default", "nested"}
+
+    def test_success_saves_parent_and_all_children(self):
+        super().test_success_saves_parent_and_all_children()
+        self.assertEqual(Parent.objects.using("nested").count(), 1)
+        self.assertEqual(Child.objects.using("nested").count(), 2)
+        self.assertEqual(Parent.objects.using("default").count(), 0)
+        self.assertEqual(Child.objects.using("default").count(), 0)
 
 
 class TestNestedUpdate(TransactionTestCase):
@@ -146,6 +159,15 @@ class TestNestedUpdate(TransactionTestCase):
         )
 
 
+@override_settings(DATABASE_ROUTERS=["tests.routers.InstanceHintWriteRouter"])
+class TestRoutedNestedUpdate(TestNestedUpdate):
+    databases = {"default", "nested"}
+
+    def setUp(self):
+        self.parent = Parent.objects.using("nested").create(name="original parent")
+        self.child = Child.objects.using("nested").create(parent=self.parent, name="original child")
+
+
 class PlainParentSerializer(BaseModelSerializer):
     name = serializers.CharField(allow_null=True)
 
@@ -169,7 +191,52 @@ class BatchParentViewSet(ParentViewSet):
     serializer_class = BatchParentSerializer
 
 
+class ParentAwareChildSerializer(ChildSerializer):
+    def validate(self, attrs):
+        if attrs["name"] == attrs["parent"].name:
+            raise ValidationError("A child name must differ from its parent name.")
+        return attrs
+
+
+class NestedBatchParentSerializer(BatchSerializerMixin, ParentSerializer):
+    child_set = ParentAwareChildSerializer(many=True, required=False)
+    nested_fields_updateds_signal = Signal()
+
+    class Meta(ParentSerializer.Meta):
+        list_serializer_class = BatchListSerializer
+
+
+class NestedBatchParentViewSet(ParentViewSet):
+    serializer_class = NestedBatchParentSerializer
+
+
 class TestBatchCreate(TransactionTestCase):
+    def test_child_validation_error_in_second_record_rolls_back_all_records(self):
+        completed = []
+
+        def record_saved_parent(sender, instance, **kwargs):
+            completed.append((instance.name, list(instance.child_set.values_list("name", flat=True))))
+
+        signal = NestedBatchParentSerializer.nested_fields_updateds_signal
+        signal.connect(record_saved_parent)
+        try:
+            request = APIRequestFactory().post(
+                "/parents/batch_create/",
+                [
+                    {"name": "first", "child_set": [{"name": "second"}]},
+                    {"name": "second", "child_set": [{"name": "second"}]},
+                ],
+                format="json",
+            )
+            response = NestedBatchParentViewSet.as_view({"post": "batch_create"})(request)
+        finally:
+            signal.disconnect(record_saved_parent)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(completed, [("first", ["second"])])
+        self.assertEqual(list(Parent.objects.values_list("name", flat=True)), [])
+        self.assertEqual(list(Child.objects.values_list("name", flat=True)), [])
+
     def test_database_error_in_second_record_rolls_back_first_record(self):
         request = APIRequestFactory().post(
             "/parents/batch_create/", [{"name": "first"}, {"name": None}], format="json"
@@ -190,7 +257,46 @@ class TestBatchCreate(TransactionTestCase):
         self.assertEqual(list(Parent.objects.order_by("id").values_list("name", flat=True)), ["first", "second"])
 
 
+@override_settings(DATABASE_ROUTERS=["tests.routers.NestedWriteRouter"])
+class TestRoutedBatchCreate(TestBatchCreate):
+    databases = {"default", "nested"}
+
+
 class TestBatchUpdate(TransactionTestCase):
+    def test_child_validation_error_in_second_record_restores_all_records(self):
+        first = Parent.objects.create(name="original first")
+        second = Parent.objects.create(name="original second")
+        first_child = Child.objects.create(parent=first, name="original first child")
+        second_child = Child.objects.create(parent=second, name="original second child")
+        completed = []
+
+        def record_saved_parent(sender, instance, **kwargs):
+            completed.append((instance.name, list(instance.child_set.values_list("name", flat=True))))
+
+        signal = NestedBatchParentSerializer.nested_fields_updateds_signal
+        signal.connect(record_saved_parent)
+        try:
+            request = APIRequestFactory().patch(
+                "/parents/batch_update/",
+                [
+                    {"id": first.id, "name": "changed first", "child_set": [{"name": "changed second"}]},
+                    {"id": second.id, "name": "changed second", "child_set": [{"name": "changed second"}]},
+                ],
+                format="json",
+            )
+            response = NestedBatchParentViewSet.as_view({"patch": "batch_update"})(request)
+        finally:
+            signal.disconnect(record_saved_parent)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(completed, [("changed first", ["original first child", "changed second"])])
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.name, "original first")
+        self.assertEqual(second.name, "original second")
+        self.assertEqual(list(first.child_set.values_list("id", flat=True)), [first_child.id])
+        self.assertEqual(list(second.child_set.values_list("id", flat=True)), [second_child.id])
+
     def test_database_error_in_second_record_restores_first_record(self):
         first = Parent.objects.create(name="original first")
         second = Parent.objects.create(name="original second")
@@ -223,3 +329,8 @@ class TestBatchUpdate(TransactionTestCase):
         second.refresh_from_db()
         self.assertEqual(first.name, "changed first")
         self.assertEqual(second.name, "changed second")
+
+
+@override_settings(DATABASE_ROUTERS=["tests.routers.NestedWriteRouter"])
+class TestRoutedBatchUpdate(TestBatchUpdate):
+    databases = {"default", "nested"}

@@ -170,12 +170,17 @@ class ProductViewSet(BaseModelViewSet):
 1つのトランザクションで処理します。後続レコードの検証や保存が失敗した場合も、
 先に処理したレコードを含めて変更をすべて巻き戻します。`ATOMIC_REQUESTS` の設定は不要です。
 
+作成時はシリアライザの `Meta.model`、更新時は対象 QuerySet のモデルを使い、
+`router.db_for_write()` が選ぶ書き込み先 DB にトランザクションを張ります。
+全レコードと入れ子の子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更は対象外です。
+
 この保証は ViewSet のバッチ処理にあります。ViewSet を通さず `many=True` のシリアライザを
 直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
-に含めてください。
+に含めてください。default 以外の DB へ保存する場合は、その alias を `using` に指定します。
 
 保存後のシグナルもトランザクション内で実行されます。メール送信などの外部への処理は、
-`transaction.on_commit()` で保存の確定後に実行してください。
+`transaction.on_commit()` で保存の確定後に実行してください。default 以外の DB に保存する場合は、
+`using` に保存先 DB の alias を指定します。
 
 ## エラーハンドリング
 

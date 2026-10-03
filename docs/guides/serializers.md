@@ -86,6 +86,10 @@ class BookSerializer(BaseModelSerializer):
 子の検証や保存に失敗すると、親と、それまでに作成・更新した子の変更もすべて巻き戻ります。
 `ATOMIC_REQUESTS` の設定は不要です。
 
+トランザクションは `router.db_for_write()` が選ぶ書き込み先 DB に張ります。
+作成時は `Meta.model`、更新時は `Meta.model` と既存の `instance` を渡します。
+親と子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更を一括で巻き戻すことはできません。
+
 ### 設定
 
 ```python
@@ -121,7 +125,8 @@ class BookSerializer(BaseModelSerializer):
 ネストフィールドの更新後にシグナルを送信できます:
 
 シグナルはトランザクション内で送られます。メール送信など、保存の確定後に実行する処理は
-受信側で `transaction.on_commit()` に登録してください。
+受信側で `transaction.on_commit()` に登録してください。default 以外の DB に保存する場合は、
+`using=instance._state.db` を指定して保存先 DB の commit を待ちます。
 
 ```python
 from django.dispatch import Signal
