@@ -174,6 +174,10 @@ class ProductViewSet(BaseModelViewSet):
 `router.db_for_write()` が選ぶ書き込み先 DB にトランザクションを張ります。
 全レコードと入れ子の子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更は対象外です。
 
+入れ子の子データは各親に対応するものを保存します。一括更新で子のフィールドを省略した場合は
+その親の子を変更しません。`NestedOrphanDeleteMixin` を使用する場合も、省略と空配列は親ごとに
+区別されます。orphan-delete を有効にした子フィールドでは、空配列を指定した親だけが子をすべて削除します。
+
 この保証は ViewSet のバッチ処理にあります。ViewSet を通さず `many=True` のシリアライザを
 直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
 に含めてください。default 以外の DB へ保存する場合は、その alias を `using` に指定します。
