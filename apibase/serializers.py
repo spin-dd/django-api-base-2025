@@ -364,7 +364,7 @@ class BatchListSerializer(serializers.ListSerializer):
     def update(self, queryset, all_validated_data):
         id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
 
-        updating = {i.pop(id_attr): i for i in all_validated_data}
+        updating = {i.pop(id_attr, empty): i for i in all_validated_data}
 
         if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")
