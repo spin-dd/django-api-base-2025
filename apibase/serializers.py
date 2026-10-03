@@ -3,6 +3,7 @@ import re
 
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.db import router, transaction
 from django.db.models import Model
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
@@ -214,7 +215,9 @@ class BaseModelSerializer(serializers.ModelSerializer):
                 copied.setlist(key, value)
 
         data = copied
-        return super().run_validation(data=data)
+        validated_data = super().run_validation(data=data)
+        validated_data.update(dict(self._children_set.lists()))
+        return validated_data
 
     def run_validation(self, data=empty):
         """(override)"""
@@ -226,7 +229,12 @@ class BaseModelSerializer(serializers.ModelSerializer):
                 return self.run_validation_querydict(data=data)
             self._children_set = {i: data.pop(i, None) for i in self.nested_fields}
 
-        return super().run_validation(data=data)
+        validated_data = super().run_validation(data=data)
+        if self.nested_fields:
+            # ListSerializer reuses this serializer; keep children with each
+            # record rather than taking the final record's _children_set.
+            validated_data.update(self._children_set)
+        return validated_data
 
     @classmethod
     def update_or_create(cls, partial=None, id=None, context=None, **validated_data):
@@ -293,21 +301,23 @@ class BaseModelSerializer(serializers.ModelSerializer):
             )
 
     def validated_children_set(self, validated_data):
-        children_set = getattr(self, "_children_set", [])
-        children_set = children_set or {i: validated_data.pop(i, []) for i in self.nested_fields}
-        return children_set
+        # Restore this record's input for nested hooks such as orphan delete.
+        self._children_set = {i: validated_data.pop(i, None) for i in self.nested_fields}
+        return self._children_set
 
     def update(self, instance, validated_data):
-        children_set = self.validated_children_set(validated_data)
-        instance = super().update(instance, validated_data)
-        self.update_nested_fields(instance, validated_data, children_set)
-        return instance
+        with transaction.atomic(using=router.db_for_write(self.Meta.model, instance=instance)):
+            children_set = self.validated_children_set(validated_data)
+            instance = super().update(instance, validated_data)
+            self.update_nested_fields(instance, validated_data, children_set)
+            return instance
 
     def create(self, validated_data):
-        children_set = self.validated_children_set(validated_data)
-        instance = super().create(validated_data)
-        self.update_nested_fields(instance, validated_data, children_set)
-        return instance
+        with transaction.atomic(using=router.db_for_write(self.Meta.model)):
+            children_set = self.validated_children_set(validated_data)
+            instance = super().create(validated_data)
+            self.update_nested_fields(instance, validated_data, children_set)
+            return instance
 
     @property
     def view_action(self):
@@ -354,7 +364,7 @@ class BatchListSerializer(serializers.ListSerializer):
     def update(self, queryset, all_validated_data):
         id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
 
-        updating = {i.pop(id_attr): i for i in all_validated_data}
+        updating = {i.pop(id_attr, empty): i for i in all_validated_data}
 
         if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")

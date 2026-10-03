@@ -7,6 +7,8 @@ so serializer-level tests supply a ``SimpleNamespace`` view/request stand-in.
 
 from types import SimpleNamespace
 
+from django.http import QueryDict
+
 import pytest
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
@@ -184,6 +186,34 @@ def test_batch_update_endpoint_updates_records_by_id():
     p2.refresh_from_db()
     assert p1.name == "updated-1"
     assert p2.name == "updated-2"
+
+
+@pytest.mark.parametrize("method", ["put", "patch"])
+@pytest.mark.parametrize("input_format", ["json", "multipart"], ids=["json", "querydict"])
+def test_batch_update_endpoint_rejects_missing_id(method, input_format):
+    first = Parent.objects.create(name="original first")
+    second = Parent.objects.create(name="original second")
+    if input_format == "json":
+        payload = [
+            {"id": first.id, "name": "changed first"},
+            {"name": "changed second"},
+        ]
+    else:
+        # DRF parses an indexed form batch into QueryDict request data.
+        payload = QueryDict(mutable=True)
+        payload.update({"[0]id": str(first.id), "[0]name": "changed first", "[1]name": "changed second"})
+
+    request = getattr(APIRequestFactory(), method)("/parents/batch_update/", payload, format=input_format)
+    action = "batch_update" if method == "patch" else "update_batch"
+    response = ParentBatchViewSet.as_view({method: action})(request)
+
+    assert response.status_code == 400
+    if input_format == "multipart":
+        assert isinstance(response.renderer_context["request"].data, QueryDict)
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.name == "original first"
+    assert second.name == "original second"
 
 
 def test_batch_update_rejects_id_outside_filtered_queryset_scope():

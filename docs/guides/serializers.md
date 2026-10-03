@@ -82,6 +82,19 @@ class BookSerializer(BaseModelSerializer):
 
 `BaseModelSerializer`は、ネストされた関連オブジェクトの作成・更新をサポートします。
 
+`create()` / `update()` は、親の保存から子の検証・保存までを1つのトランザクションで実行します。
+子の検証や保存に失敗すると、親と、それまでに作成・更新した子の変更もすべて巻き戻ります。
+`ATOMIC_REQUESTS` の設定は不要です。
+
+トランザクションは `router.db_for_write()` が選ぶ書き込み先 DB に張ります。
+作成時は `Meta.model`、更新時は `Meta.model` と既存の `instance` を渡します。
+親と子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更を一括で巻き戻すことはできません。
+
+`many=True` の一括作成・更新でも、親ごとに入力した子データが保存されます。
+辞書入力と `QueryDict` 入力のどちらも、子データを各要素の検証結果に保持して保存時に取り出します。
+子の検証・保存は親の保存時に行い、親の `validate()` に渡す `attrs` には子データを含めません。
+`validate()` 内で入れ子の変更を検査する場合は、従来どおり `self.children_set` から入力を参照できます。
+
 ### 設定
 
 ```python
@@ -115,6 +128,10 @@ class BookSerializer(BaseModelSerializer):
 ### シグナルによる通知
 
 ネストフィールドの更新後にシグナルを送信できます:
+
+シグナルはトランザクション内で送られます。メール送信など、保存の確定後に実行する処理は
+受信側で `transaction.on_commit()` に登録してください。default 以外の DB に保存する場合は、
+`using=instance._state.db` を指定して保存先 DB の commit を待ちます。
 
 ```python
 from django.dispatch import Signal
