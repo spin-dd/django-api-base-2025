@@ -65,6 +65,9 @@ PATCH /api/products/batch_update/
 
 各オブジェクトには識別子（デフォルトは`id`）が必要です:
 
+PUT / PATCH の一括更新で1件でも識別子を省略すると、HTTP 400 を返し、全レコードの更新を拒否します。
+JSON とフォーム入力のどちらでも同じ扱いです。
+
 ```json
 [
     {"id": 1, "price": 150},
@@ -166,24 +169,31 @@ class ProductViewSet(BaseModelViewSet):
 
 ### 自動トランザクション
 
-デフォルトでは、各操作は個別のトランザクションで実行されます。
+`BaseModelViewSet.create_batch()` / `update_batch()` は、リクエスト内の全レコードを
+1つのトランザクションで処理します。後続レコードの検証や保存が失敗した場合も、
+先に処理したレコードを含めて変更をすべて巻き戻します。`ATOMIC_REQUESTS` の設定は不要です。
 
-### 明示的なトランザクション
+作成時はシリアライザの `Meta.model`、更新時は対象 QuerySet のモデルを使い、
+`router.db_for_write()` が選ぶ書き込み先 DB にトランザクションを張ります。
+全レコードと入れ子の子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更は対象外です。
 
-全体を1つのトランザクションにする場合:
+`BatchListSerializer` の一括更新では、選択された各行の instance を
+`router.db_for_write()` に渡し、実際の保存先 DB でも全件をトランザクションで囲みます。
+明示した `QuerySet.using()` や instance の保存先を使うルーターでも、後続行の失敗時は
+先行更新を巻き戻します。選択された行の書き込み先が複数の DB に分かれる場合は、保存前に 400 で断ります。
+この保護は ViewSet を通さず `BatchListSerializer.save()` を呼ぶ場合にも適用されます。
 
-```python
-from django.db import transaction
+入れ子の子データは各親に対応するものを保存します。一括更新で子のフィールドを省略した場合は
+その親の子を変更しません。`NestedOrphanDeleteMixin` を使用する場合も、省略と空配列は親ごとに
+区別されます。orphan-delete を有効にした子フィールドでは、空配列を指定した親だけが子をすべて削除します。
 
-class ProductViewSet(BaseModelViewSet):
-    @transaction.atomic
-    def batch_create(self, request, *args, **kwargs):
-        return super().batch_create(request, *args, **kwargs)
+`BatchListSerializer` の更新以外では、この保証は ViewSet のバッチ処理にあります。
+標準の `ListSerializer` で一括作成を直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
+に含めてください。default 以外の DB へ保存する場合は、その alias を `using` に指定します。
 
-    @transaction.atomic
-    def batch_update(self, request, *args, **kwargs):
-        return super().batch_update(request, *args, **kwargs)
-```
+保存後のシグナルもトランザクション内で実行されます。メール送信などの外部への処理は、
+`transaction.on_commit()` で保存の確定後に実行してください。default 以外の DB に保存する場合は、
+`using` に保存先 DB の alias を指定します。
 
 ## エラーハンドリング
 

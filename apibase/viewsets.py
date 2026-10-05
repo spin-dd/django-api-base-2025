@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from django.contrib.auth.models import Permission
-from django.db import models as django_models
+from django.db import models as django_models, router, transaction
 from django.http import Http404
 from django.utils.functional import cached_property
 from django.views import static
@@ -148,22 +148,25 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
 
     def update_batch(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
-        serializer = self.get_serializer(
-            self.filter_queryset(self.get_queryset()),
-            data=request.data,
-            many=True,
-            partial=partial,
-        )
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data)
+        queryset = self.filter_queryset(self.get_queryset())
+        with transaction.atomic(using=router.db_for_write(queryset.model)):
+            serializer = self.get_serializer(
+                queryset,
+                data=request.data,
+                many=True,
+                partial=partial,
+            )
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data)
 
     def create_batch(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, many=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        with transaction.atomic(using=router.db_for_write(serializer.child.Meta.model)):
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def paginate_queryset(self, queryset):
         """(override)"""
