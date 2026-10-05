@@ -378,12 +378,17 @@ class BatchListSerializer(serializers.ListSerializer):
         if len(updating) != objects_to_update.count():
             raise exceptions.ValidationError("Could not find all objects to update.")
 
+        aliases = {router.db_for_write(self.child.Meta.model, instance=instance) for instance in objects_to_update}
+        if len(aliases) > 1:
+            raise exceptions.ValidationError("Batch updates must use a single database.")
+        using = next(iter(aliases)) if aliases else router.db_for_write(self.child.Meta.model)
         updated_objects = []
 
-        for instance in objects_to_update:
-            obj_id = getattr(instance, id_attr)
-            obj_validated_data = updating.get(obj_id)
+        with transaction.atomic(using=using):
+            for instance in objects_to_update:
+                obj_id = getattr(instance, id_attr)
+                obj_validated_data = updating.get(obj_id)
 
-            updated_objects.append(self.child.update(instance, obj_validated_data))
+                updated_objects.append(self.child.update(instance, obj_validated_data))
 
         return updated_objects

@@ -177,12 +177,18 @@ class ProductViewSet(BaseModelViewSet):
 `router.db_for_write()` が選ぶ書き込み先 DB にトランザクションを張ります。
 全レコードと入れ子の子が同じ DB に保存される場合の保証で、複数の DB をまたぐ変更は対象外です。
 
+`BatchListSerializer` の一括更新では、選択された各行の instance を
+`router.db_for_write()` に渡し、実際の保存先 DB でも全件をトランザクションで囲みます。
+明示した `QuerySet.using()` や instance の保存先を使うルーターでも、後続行の失敗時は
+先行更新を巻き戻します。選択された行の書き込み先が複数の DB に分かれる場合は、保存前に 400 で断ります。
+この保護は ViewSet を通さず `BatchListSerializer.save()` を呼ぶ場合にも適用されます。
+
 入れ子の子データは各親に対応するものを保存します。一括更新で子のフィールドを省略した場合は
 その親の子を変更しません。`NestedOrphanDeleteMixin` を使用する場合も、省略と空配列は親ごとに
 区別されます。orphan-delete を有効にした子フィールドでは、空配列を指定した親だけが子をすべて削除します。
 
-この保証は ViewSet のバッチ処理にあります。ViewSet を通さず `many=True` のシリアライザを
-直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
+`BatchListSerializer` の更新以外では、この保証は ViewSet のバッチ処理にあります。
+標準の `ListSerializer` で一括作成を直接保存する場合や、バッチ処理を独自実装する場合は、呼び出し側で全体を `transaction.atomic()`
 に含めてください。default 以外の DB へ保存する場合は、その alias を `using` に指定します。
 
 保存後のシグナルもトランザクション内で実行されます。メール送信などの外部への処理は、
