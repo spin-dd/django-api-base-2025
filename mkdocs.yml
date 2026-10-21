@@ -148,6 +148,7 @@ nav:
     - viewsets: reference/viewsets.md
     - serializers: reference/serializers.md
     - filters: reference/filters.md
+    - querysets: reference/querysets.md
     - fields: reference/fields.md
     - routers: reference/routers.md
     - paginations: reference/paginations.md

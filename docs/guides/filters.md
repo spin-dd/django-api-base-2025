@@ -61,6 +61,9 @@ class ProductFilter(FanOutBaseFilter):
 GenericRelation を JOIN していれば `DISTINCT` を掛けます。`EXISTS` やサブクエリで評価する
 method には掛けません。
 
+組み上がった queryset の多値 JOIN を REST 側でも調べる場合は、
+[`duplicating_join_aliases`](../reference/querysets.md) を使えます。
+
 ## WordFilter
 
 日本語検索に対応したフィルタです。全角・半角を自動的に変換して検索します。
