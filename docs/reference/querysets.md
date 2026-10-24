@@ -2,7 +2,10 @@
 
 `apibase.querysets.duplicating_join_aliases(queryset)` は、元の行を複製しうる
 JOIN の alias を `set[str]` で返します。逆 FK、M2M、GenericRelation を含み、
-単値 FK と一対一の JOIN は含みません。SQL は実行しません。
+単値 FK と一対一の JOIN、および SQL から外れた JOIN は含みません。SQL は実行しません。
+
+差分を取る場合、`filtered_queryset` は `base_queryset` から派生させてください。
+無関係な queryset 同士では alias 名の対応が保証されません。
 
 ```python
 from apibase.querysets import duplicating_join_aliases

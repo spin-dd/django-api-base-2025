@@ -15,6 +15,7 @@ def duplicating_join_aliases(queryset: QuerySet) -> set[str]:
         alias
         for alias, join in queryset.query.alias_map.items()
         if isinstance(join, Join)
+        and queryset.query.alias_refcount[alias] > 0
         and join.join_field
         and (
             getattr(join.join_field, "many_to_many", False)

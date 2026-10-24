@@ -29,4 +29,18 @@ def test_new_duplicating_join_can_be_distinguished_from_a_base_join():
     base = Vendor.all_objects.filter(tags__name="t")
     with_notes = base.filter(notes__text="n")
 
-    assert duplicating_join_aliases(with_notes) - duplicating_join_aliases(base)
+    expected = {alias for alias, join in with_notes.query.alias_map.items() if join.table_name == "tests_vendornote"}
+    assert expected
+    assert duplicating_join_aliases(with_notes) - duplicating_join_aliases(base) == expected
+
+
+def test_unreferenced_duplicating_join_is_excluded():
+    """An alias left in alias_map after its reference is removed is ignored."""
+    queryset = Vendor.all_objects.filter(tags__name="t")
+    tag_alias = next(alias for alias, join in queryset.query.alias_map.items() if join.table_name == "tests_vendortag")
+    assert duplicating_join_aliases(queryset) == {tag_alias}
+
+    queryset.query.unref_alias(tag_alias)
+
+    assert queryset.query.alias_refcount[tag_alias] == 0
+    assert duplicating_join_aliases(queryset) == set()
