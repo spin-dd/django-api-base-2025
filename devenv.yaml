@@ -1,16 +1,18 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
 inputs:
-  nixpkgs:
-    url: github:cachix/devenv-nixpkgs/rolling
-  nixpkgs-python:
-    url: github:cachix/nixpkgs-python
+  # devenv.nix が pre-commit.hooks（git-hooks）を使うので、input の宣言が要る。
+  # 宣言が無いと devenv は lock から git-hooks ノードを削除したうえで
+  # assertion に落ちる（django-api-base#31 と同じ）。
+  git-hooks:
+    url: github:cachix/git-hooks.nix
     inputs:
       nixpkgs:
         follows: nixpkgs
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
 
 cachix:
   enable: true
   caches:
-    - nixpkgs-python
     - devenv
     - nix-community
