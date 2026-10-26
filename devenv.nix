@@ -9,7 +9,8 @@
 {
   languages.python = {
     enable = true;
-    version = "3.12";
+    # nixpkgs の Python はキャッシュに載る（nixpkgs-python を nixpkgs に follows させるとソースからビルドになる）
+    package = pkgs.python312;
     uv = {
       enable = true;
       sync.enable = true;
