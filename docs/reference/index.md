@@ -9,6 +9,7 @@ apibaseの全クラス・関数のリファレンスです。
 | [viewsets](viewsets.md) | ViewSet拡張クラス |
 | [serializers](serializers.md) | Serializer拡張クラス |
 | [filters](filters.md) | フィルタクラス |
+| [querysets](querysets.md) | 行を複製しうる JOIN の判定 |
 | [fields](fields.md) | カスタムフィールド |
 | [routers](routers.md) | URLルーター |
 | [paginations](paginations.md) | ページネーション |

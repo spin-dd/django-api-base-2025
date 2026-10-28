@@ -1,10 +1,9 @@
 # https://docs.graphene-python.org/projects/django/en/latest/queries/
-from django.db.models import ForeignObjectRel
-
 from django_filters.utils import get_field_parts
 from graphene_django.filter import DjangoFilterConnectionField
 
 from .. import filters, utils
+from ..querysets import duplicating_join_aliases
 from .connections import FilteringConnection
 
 
@@ -61,21 +60,7 @@ def _queryset_has_duplicating_joins(qs):
         True if the QuerySet has JOINs that could cause duplicate rows
     """
     try:
-        from django.db.models.sql.datastructures import Join
-
-        for _alias, join_info in qs.query.alias_map.items():
-            if isinstance(join_info, Join) and join_info.join_field:
-                join_field = join_info.join_field
-                if getattr(join_field, "many_to_many", False):
-                    return True
-                if getattr(join_field, "one_to_many", False):
-                    return True
-                # A GenericRelation joins through GenericRel, which mirrors the
-                # relation field's flags and reports many-to-one, yet it fans out
-                # like a reverse FK. Only a one-to-one reverse keeps one row.
-                if isinstance(join_field, ForeignObjectRel) and not join_field.one_to_one:
-                    return True
-        return False
+        return bool(duplicating_join_aliases(qs))
     except Exception:
         return True  # Conservative fallback on error
 

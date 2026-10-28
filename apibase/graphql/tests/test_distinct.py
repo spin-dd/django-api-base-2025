@@ -234,6 +234,7 @@ class TestQuerysetHasDuplicatingJoins:
 
         qs = MagicMock()
         qs.query.alias_map = {"tags": mock_join}
+        qs.query.alias_refcount = {"tags": 1}
 
         result = _queryset_has_duplicating_joins(qs)
         assert result is True
