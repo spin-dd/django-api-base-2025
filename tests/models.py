@@ -61,6 +61,7 @@ class NullableBatchItem(models.Model):
 
     class Meta:
         app_label = "tests"
+        constraints = [models.UniqueConstraint(fields=["name", "code"], name="nullable_batch_name_code")]
 
 
 class SoftDeleteManager(models.Manager):

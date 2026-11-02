@@ -252,6 +252,30 @@ class NullableBatchItemSerializer(BaseModelSerializer):
     class Meta:
         model = NullableBatchItem
         fields = ["id", "name", "code"]
+        validators = []
+
+
+class NullableCompositeBatchItemSerializer(BaseModelSerializer):
+    class Meta:
+        model = NullableBatchItem
+        fields = ["id", "name", "code"]
+
+
+def test_batch_uniqueness_recheck_includes_omitted_null_key_values() -> None:
+    rows = [NullableBatchItem.objects.create(name=name, code=None) for name in ("first", "second")]
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/", [{"id": row.pk, "name": "same"} for row in rows], format="json"
+    )
+    view = BatchItemViewSet.as_view(
+        {"patch": "batch_update"},
+        queryset=NullableBatchItem.objects.all(),
+        serializer_class=NullableCompositeBatchItemSerializer,
+    )
+
+    response = view(request)
+
+    assert response.status_code == 200, response.data
+    assert list(NullableBatchItem.objects.values_list("name", "code")) == [("same", None)] * 2
 
 
 @pytest.mark.parametrize("code", [None, ""], ids=["null-distinct", "blank-is-not-null"])

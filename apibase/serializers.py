@@ -382,6 +382,9 @@ class BatchListSerializer(serializers.ListSerializer):
         """Include earlier writes in this batch without rerunning business validation."""
         for validator in self.child.validators:
             if isinstance(validator, UniqueTogetherValidator):
+                sources = [self.child.fields[name].source for name in validator.fields]
+                if any(data.get(source, getattr(self.child.instance, source)) is None for source in sources):
+                    continue
                 validator(data, self.child)
         for field in self.child.fields.values():
             if field.read_only:
