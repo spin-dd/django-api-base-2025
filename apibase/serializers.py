@@ -1,15 +1,17 @@
 import inspect
 import re
+from typing import Any
 
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import router, transaction
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
 
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
+from rest_framework.serializers import LIST_SERIALIZER_KWARGS, LIST_SERIALIZER_KWARGS_REMOVE
 
 from . import identity
 from ._spectacular import OpenApiTypes, extend_schema_field
@@ -159,6 +161,20 @@ class BaseModelSerializer(serializers.ModelSerializer):
     nested_fields_updateds_signal = None
 
     action_handlers = {}
+
+    @classmethod
+    def many_init(cls, *args: Any, **kwargs: Any) -> serializers.ListSerializer:
+        """Use the batch implementation unless Meta selects a custom list serializer."""
+        list_kwargs = {}
+        for key in LIST_SERIALIZER_KWARGS_REMOVE:
+            value = kwargs.pop(key, None)
+            if value is not None:
+                list_kwargs[key] = value
+        list_kwargs["child"] = cls(*args, **kwargs)
+        list_kwargs.update({key: value for key, value in kwargs.items() if key in LIST_SERIALIZER_KWARGS})
+        meta = getattr(cls, "Meta", None)
+        list_serializer_class = getattr(meta, "list_serializer_class", BatchListSerializer)
+        return list_serializer_class(*args, **list_kwargs)
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)
@@ -361,10 +377,39 @@ class BatchSerializerMixin:
 class BatchListSerializer(serializers.ListSerializer):
     update_lookup_field = "id"
 
-    def update(self, queryset, all_validated_data):
+    def run_child_validation(self, data: Any) -> Any:
+        """Give update validators the matching row, including omitted field values."""
+        if not isinstance(self.instance, QuerySet) or not isinstance(data, dict):
+            return super().run_child_validation(data)
+        id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
+        id_field = self.child.fields[id_attr]
+        raw_id = id_field.get_value(data)
+        if raw_id is empty:
+            raise exceptions.ValidationError({id_attr: "This field is required."}, code="required")
+        lookup_id = id_field.to_internal_value(raw_id)
+        try:
+            instance = self.instance.get(**{id_attr: lookup_id})
+        except self.instance.model.DoesNotExist:
+            raise exceptions.ValidationError("Could not find all objects to update.") from None
+        previous_instance = self.child.instance
+        self.child.instance = instance
+        self.child.initial_data = data
+        try:
+            validated = super().run_child_validation(data)
+            # The identifier selects the row even when the model serializer makes
+            # it read-only. It is removed again before calling child.update().
+            validated[id_attr] = lookup_id
+            return validated
+        finally:
+            self.child.instance = previous_instance
+
+    def update(self, queryset: QuerySet, all_validated_data: list[dict[str, Any]]) -> list[Model]:
         id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
 
         updating = {i.pop(id_attr, empty): i for i in all_validated_data}
+
+        if len(updating) != len(all_validated_data):
+            raise exceptions.ValidationError("Duplicate objects in batch update.")
 
         if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")
@@ -389,6 +434,7 @@ class BatchListSerializer(serializers.ListSerializer):
                 obj_id = getattr(instance, id_attr)
                 obj_validated_data = updating.get(obj_id)
 
+                self.child.instance = instance
                 updated_objects.append(self.child.update(instance, obj_validated_data))
 
         return updated_objects

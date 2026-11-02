@@ -88,18 +88,21 @@ JSON とフォーム入力のどちらでも同じ扱いです。
 
 ## シリアライザの設定
 
-### BatchSerializerMixin
+### 既定の一括更新
 
-バッチ更新に対応するため、シリアライザに`BatchSerializerMixin`を追加:
+`BaseModelSerializer` は `many=True` の既定に `BatchListSerializer` を使います。
+一括更新は送信された識別子を、ViewSet の絞り込み済み queryset から引き、各行の instance を使って検証します。
+省略された列はその行の保存済みの値で検証し、一意性の照合では自分自身を除きます。
+読み取り専用の `id` も更新対象の指定に使えます。存在しない識別子、対象外の識別子、識別子の省略・重複は400になります。
+`Meta.list_serializer_class` を指定した場合は、そのクラスを使います。
 
 ```python
-from apibase.serializers import BatchSerializerMixin, BatchListSerializer, BaseModelSerializer
+from apibase.serializers import BaseModelSerializer
 
-class ProductSerializer(BatchSerializerMixin, BaseModelSerializer):
+class ProductSerializer(BaseModelSerializer):
     class Meta:
         model = Product
         fields = ['id', 'name', 'price', 'category']
-        list_serializer_class = BatchListSerializer
         update_lookup_field = 'id'  # 更新時の識別フィールド
 ```
 
@@ -108,11 +111,10 @@ class ProductSerializer(BatchSerializerMixin, BaseModelSerializer):
 `id`以外のフィールドで識別する場合:
 
 ```python
-class ProductSerializer(BatchSerializerMixin, BaseModelSerializer):
+class ProductSerializer(BaseModelSerializer):
     class Meta:
         model = Product
         fields = ['sku', 'name', 'price']
-        list_serializer_class = BatchListSerializer
         update_lookup_field = 'sku'  # SKUで識別
 ```
 

@@ -12,6 +12,7 @@ from django.http import QueryDict
 import pytest
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
+from rest_framework.validators import UniqueTogetherValidator
 
 from apibase.serializers import BaseModelSerializer, BatchListSerializer, BatchSerializerMixin
 from apibase.viewsets import BaseModelViewSet
@@ -56,6 +57,58 @@ class BatchItemSerializer(BatchSerializerMixin, BaseModelSerializer):
 class BatchItemViewSet(BaseModelViewSet):
     queryset = BatchItem.objects.all()
     serializer_class = BatchItemSerializer
+
+
+class DefaultBatchItemSerializer(BaseModelSerializer):
+    class Meta:
+        model = BatchItem
+        fields = ["id", "name", "code"]
+        read_only_fields = ["id"]
+        validators = [UniqueTogetherValidator(queryset=BatchItem.objects.all(), fields=["name", "code"])]
+
+
+class DefaultBatchItemViewSet(BaseModelViewSet):
+    queryset = BatchItem.objects.all()
+    serializer_class = DefaultBatchItemSerializer
+
+
+def test_default_batch_update_validates_against_each_existing_row() -> None:
+    first = BatchItem.objects.create(name="first", code="one")
+    second = BatchItem.objects.create(name="second", code="two")
+    untouched = BatchItem.objects.create(name="untouched", code="three")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": str(first.pk), "name": "first"}, {"id": second.pk, "name": "changed"}],
+        format="json",
+    )
+
+    response = DefaultBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 200, response.data
+    assert set(BatchItem.objects.values_list("name", "code")) == {
+        ("first", "one"),
+        ("changed", "two"),
+        ("untouched", "three"),
+    }
+    assert {row["id"] for row in response.data} == {first.pk, second.pk}
+    untouched.refresh_from_db()
+    assert untouched.name == "untouched"
+
+
+@pytest.mark.parametrize("duplicate_id", [False, True], ids=["unique-conflict", "duplicate-id"])
+def test_default_batch_update_rejects_conflict_without_partial_save(duplicate_id: bool) -> None:
+    first = BatchItem.objects.create(name="first", code="same")
+    second = BatchItem.objects.create(name="second", code="same")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": first.pk, "name": "changed"}, {"id": first.pk if duplicate_id else second.pk, "name": "first"}],
+        format="json",
+    )
+
+    response = DefaultBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 400, response.data
+    assert set(BatchItem.objects.values_list("name", "code")) == {("first", "same"), ("second", "same")}
 
 
 # ---------------------------------------------------------------------------
@@ -115,10 +168,8 @@ def test_bulk_update_raises_when_id_not_in_queryset():
         {"id": missing_id, "name": "ghost"},
     ]
     ser = _make_batch_serializer(Parent.objects.all(), payload)
-    assert ser.is_valid(raise_exception=True)
-
     with pytest.raises(ValidationError, match="Could not find all objects to update."):
-        ser.save()
+        ser.is_valid(raise_exception=True)
 
 
 def test_bulk_update_raises_when_id_is_missing_or_falsy():
@@ -131,10 +182,8 @@ def test_bulk_update_raises_when_id_is_missing_or_falsy():
         {"id": 0, "name": "no-id"},
     ]
     ser = _make_batch_serializer(Parent.objects.all(), payload)
-    assert ser.is_valid(raise_exception=True)
-
     with pytest.raises(ValidationError):
-        ser.save()
+        ser.is_valid(raise_exception=True)
 
 
 # ---------------------------------------------------------------------------
