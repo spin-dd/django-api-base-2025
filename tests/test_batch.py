@@ -78,6 +78,36 @@ class DefaultBatchItemViewSet(BaseModelViewSet):
     serializer_class = DefaultBatchItemSerializer
 
 
+class SaveLifecycleBatchItemSerializer(DefaultBatchItemSerializer):
+    suffix = serializers.CharField(write_only=True)
+
+    class Meta(DefaultBatchItemSerializer.Meta):
+        fields = [*DefaultBatchItemSerializer.Meta.fields, "suffix"]
+
+    def save(self, **kwargs: Any) -> BatchItem:
+        assert self.initial_data["id"] == self.instance.pk
+        suffix = self.validated_data.pop("suffix")
+        instance = super().save(**kwargs)
+        instance.name += suffix
+        instance.save(update_fields=["name"])
+        # A save override may serialize its result. The next row needs fresh state.
+        assert self.data["name"] == instance.name
+        return instance
+
+
+def test_batch_update_runs_each_rows_save_lifecycle() -> None:
+    rows = [BatchItem.objects.create(name=name, code=name) for name in ("first", "second")]
+    payload = [{"id": row.pk, "name": row.name, "suffix": f"-{index}"} for index, row in enumerate(rows)]
+    view = DefaultBatchItemViewSet.as_view(
+        {"patch": "batch_update"}, serializer_class=SaveLifecycleBatchItemSerializer
+    )
+
+    response = view(APIRequestFactory().patch("/batch-items/batch_update/", payload, format="json"))
+
+    assert response.status_code == 200, response.data
+    assert list(BatchItem.objects.order_by("pk").values_list("name", flat=True)) == ["first-0", "second-1"]
+
+
 class BatchItemObjectPermission(BasePermission):
     def has_permission(self, request: Any, view: Any) -> bool:
         return not request.data.get("deny_request", False)

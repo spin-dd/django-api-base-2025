@@ -412,6 +412,9 @@ class BatchListSerializer(serializers.ListSerializer):
         if raw_id is empty:
             raise exceptions.ValidationError({id_attr: "This field is required."}, code="required")
         lookup_id = id_field.to_internal_value(raw_id)
+        if not hasattr(self, "_initial_rows"):
+            self._initial_rows = {}
+        self._initial_rows[lookup_id] = data.copy()
         try:
             instance = self.instance.get(**{id_attr: lookup_id})
         except (self.instance.model.DoesNotExist, self.instance.model.MultipleObjectsReturned):
@@ -422,7 +425,7 @@ class BatchListSerializer(serializers.ListSerializer):
         try:
             validated = super().run_child_validation(data)
             # The identifier selects the row even when the model serializer makes
-            # it read-only. It is removed again before calling child.update().
+            # it read-only. It is removed again before calling child.save().
             validated[id_attr] = lookup_id
             return validated
         finally:
@@ -461,6 +464,16 @@ class BatchListSerializer(serializers.ListSerializer):
 
                 self.child.instance = instance
                 self._validate_update_uniqueness(obj_validated_data)
-                updated_objects.append(self.child.update(instance, obj_validated_data))
+                # Validation has already succeeded for every row. Install this
+                # row's state so save overrides see the same contract as a
+                # single update, without repeating business validation.
+                self.child.initial_data = getattr(self, "_initial_rows", {}).get(obj_id, obj_validated_data.copy())
+                self.child._validated_data = obj_validated_data
+                self.child._errors = {}
+                self.child.__dict__.pop("_data", None)
+                self.child._children_set = {
+                    name: obj_validated_data.get(name) for name in getattr(self.child, "nested_fields", [])
+                }
+                updated_objects.append(self.child.save())
 
         return updated_objects
