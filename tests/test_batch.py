@@ -6,12 +6,14 @@ so serializer-level tests supply a ``SimpleNamespace`` view/request stand-in.
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 from django.http import QueryDict
 
 import pytest
 from rest_framework.exceptions import ValidationError
-from rest_framework.test import APIRequestFactory
+from rest_framework.permissions import BasePermission
+from rest_framework.test import APIRequestFactory, force_authenticate
 from rest_framework.validators import UniqueTogetherValidator
 
 from apibase.serializers import BaseModelSerializer, BatchListSerializer, BatchSerializerMixin
@@ -70,6 +72,31 @@ class DefaultBatchItemSerializer(BaseModelSerializer):
 class DefaultBatchItemViewSet(BaseModelViewSet):
     queryset = BatchItem.objects.all()
     serializer_class = DefaultBatchItemSerializer
+
+
+class BatchItemObjectPermission(BasePermission):
+    def has_object_permission(self, request: Any, view: Any, obj: BatchItem) -> bool:
+        return obj.code != "locked"
+
+
+class PermissionBatchItemViewSet(DefaultBatchItemViewSet):
+    permission_classes = [BatchItemObjectPermission]
+
+
+def test_batch_update_checks_every_object_before_saving() -> None:
+    allowed = BatchItem.objects.create(name="allowed", code="open")
+    forbidden = BatchItem.objects.create(name="forbidden", code="locked")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": allowed.pk, "name": "changed"}, {"id": forbidden.pk, "name": "changed"}],
+        format="json",
+    )
+    force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+
+    response = PermissionBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 403, response.data
+    assert set(BatchItem.objects.values_list("name", flat=True)) == {"allowed", "forbidden"}
 
 
 def test_default_batch_update_validates_against_each_existing_row() -> None:

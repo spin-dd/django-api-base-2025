@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from logging import getLogger
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from django.contrib.auth.models import Permission
 from django.db import models as django_models, router, transaction
@@ -146,7 +146,7 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
             return self.create_batch(request, *args, **kwargs)
         return super().create(request, *args, **kwargs)
 
-    def update_batch(self, request, *args, **kwargs):
+    def update_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         queryset = self.filter_queryset(self.get_queryset())
         with transaction.atomic(using=router.db_for_write(queryset.model)):
@@ -157,6 +157,10 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
                 partial=partial,
             )
             serializer.is_valid(raise_exception=True)
+            id_attr = getattr(serializer.child.Meta, "update_lookup_field", "id")
+            ids = [row[id_attr] for row in serializer.validated_data]
+            for instance in queryset.filter(**{f"{id_attr}__in": ids}):
+                self.check_object_permissions(request, instance)
             self.perform_update(serializer)
             return Response(serializer.data)
 
