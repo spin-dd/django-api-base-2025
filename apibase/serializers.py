@@ -390,7 +390,7 @@ class BatchListSerializer(serializers.ListSerializer):
                 value = fields.get_attribute(data, field.source_attrs)
             except (KeyError, AttributeError):
                 continue
-            if value is None or (value == "" and getattr(field, "allow_blank", False)):
+            if value is None:
                 continue
             for validator in field.validators:
                 if isinstance(validator, UniqueValidator):

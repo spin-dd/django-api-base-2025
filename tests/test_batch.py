@@ -254,11 +254,12 @@ class NullableBatchItemSerializer(BaseModelSerializer):
         fields = ["id", "name", "code"]
 
 
-def test_batch_uniqueness_recheck_keeps_null_values_distinct() -> None:
+@pytest.mark.parametrize("code", [None, ""], ids=["null-distinct", "blank-is-not-null"])
+def test_batch_uniqueness_recheck_keeps_null_values_distinct(code: str | None) -> None:
     rows = [NullableBatchItem.objects.create(name=name, code=None) for name in ("first", "second")]
     request = APIRequestFactory().patch(
         "/batch-items/batch_update/",
-        [{"id": row.pk, "name": "changed", "code": None} for row in rows],
+        [{"id": row.pk, "name": "changed", "code": code} for row in rows],
         format="json",
     )
     view = BatchItemViewSet.as_view(
@@ -269,8 +270,10 @@ def test_batch_uniqueness_recheck_keeps_null_values_distinct() -> None:
 
     response = view(request)
 
-    assert response.status_code == 200, response.data
-    assert list(NullableBatchItem.objects.values_list("name", "code")) == [("changed", None)] * 2
+    assert response.status_code == (200 if code is None else 400), response.data
+    assert list(NullableBatchItem.objects.values_list("name", "code")) == (
+        [("changed", None)] * 2 if code is None else [("first", None), ("second", None)]
+    )
 
 
 def test_batch_update_rechecks_field_uniqueness_between_rows() -> None:
