@@ -11,7 +11,9 @@ from django.utils.functional import cached_property
 from django.views import static
 
 from rest_framework import decorators, serializers, status, viewsets
+from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
+from rest_framework.utils import html
 
 from . import paginations, permissions, storages, utils
 from ._spectacular import OpenApiParameter, OpenApiTypes, extend_schema
@@ -21,6 +23,13 @@ _M = TypeVar("_M", bound=django_models.Model)
 
 
 logger = getLogger()
+
+
+def _row_request(request: Request, data: Any) -> Request:
+    """Keep authentication and metadata while exposing one batch row to permissions."""
+    row_request = clone_request(request, request.method)
+    row_request._full_data = data
+    return row_request
 
 
 class ViewSetMixin:
@@ -120,6 +129,18 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
     pagination_class = paginations.Pagination
     fields_query = None
 
+    def check_permissions(self, request: Request) -> None:
+        """Check request permissions with the same row-shaped data as a single update."""
+        if self.action == "batch_update":
+            data = request.data
+            if html.is_html_input(data):
+                data = html.parse_html_list(data, default=[])
+            if isinstance(data, list):
+                for row in data or [{}]:
+                    super().check_permissions(_row_request(request, row if isinstance(row, dict) else {}))
+                return
+        super().check_permissions(request)
+
     @decorators.action(methods=["post"], detail=False)
     def batch_create(self, request, *args, **kwargs):
         if request.method == "GET":
@@ -158,9 +179,12 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
             )
             serializer.is_valid(raise_exception=True)
             id_attr = getattr(serializer.child.Meta, "update_lookup_field", "id")
-            ids = [row[id_attr] for row in serializer.validated_data]
-            for instance in queryset.filter(**{f"{id_attr}__in": ids}):
-                self.check_object_permissions(request, instance)
+            data = serializer.initial_data
+            if html.is_html_input(data):
+                data = html.parse_html_list(data, default=[])
+            by_id = {row[id_attr]: raw for row, raw in zip(serializer.validated_data, data, strict=True)}
+            for instance in queryset.filter(**{f"{id_attr}__in": by_id}):
+                self.check_object_permissions(_row_request(request, by_id[getattr(instance, id_attr)]), instance)
             self.perform_update(serializer)
             return Response(serializer.data)
 

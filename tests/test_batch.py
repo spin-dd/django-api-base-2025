@@ -11,6 +11,7 @@ from typing import Any
 from django.http import QueryDict
 
 import pytest
+from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.test import APIRequestFactory, force_authenticate
@@ -18,7 +19,7 @@ from rest_framework.validators import UniqueTogetherValidator
 
 from apibase.serializers import BaseModelSerializer, BatchListSerializer, BatchSerializerMixin
 from apibase.viewsets import BaseModelViewSet
-from tests.models import BatchItem, Parent
+from tests.models import BatchItem, Child, Parent
 
 pytestmark = pytest.mark.django_db
 
@@ -62,6 +63,8 @@ class BatchItemViewSet(BaseModelViewSet):
 
 
 class DefaultBatchItemSerializer(BaseModelSerializer):
+    id = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = BatchItem
         fields = ["id", "name", "code"]
@@ -75,20 +78,24 @@ class DefaultBatchItemViewSet(BaseModelViewSet):
 
 
 class BatchItemObjectPermission(BasePermission):
+    def has_permission(self, request: Any, view: Any) -> bool:
+        return not request.data.get("deny_request", False)
+
     def has_object_permission(self, request: Any, view: Any, obj: BatchItem) -> bool:
-        return obj.code != "locked"
+        return obj.code != "locked" and not request.data.get("deny_object", False)
 
 
 class PermissionBatchItemViewSet(DefaultBatchItemViewSet):
     permission_classes = [BatchItemObjectPermission]
 
 
-def test_batch_update_checks_every_object_before_saving() -> None:
+@pytest.mark.parametrize("denial", ["object", "deny_request", "deny_object"])
+def test_batch_update_checks_every_object_before_saving(denial: str) -> None:
     allowed = BatchItem.objects.create(name="allowed", code="open")
-    forbidden = BatchItem.objects.create(name="forbidden", code="locked")
+    forbidden = BatchItem.objects.create(name="forbidden", code="locked" if denial == "object" else "other")
     request = APIRequestFactory().patch(
         "/batch-items/batch_update/",
-        [{"id": allowed.pk, "name": "changed"}, {"id": forbidden.pk, "name": "changed"}],
+        [{"id": allowed.pk, "name": "changed"}, {"id": forbidden.pk, "name": "changed", denial: True}],
         format="json",
     )
     force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
@@ -100,6 +107,7 @@ def test_batch_update_checks_every_object_before_saving() -> None:
 
 
 def test_default_batch_update_validates_against_each_existing_row() -> None:
+    assert DefaultBatchItemSerializer().fields["id"].read_only is True
     first = BatchItem.objects.create(name="first", code="one")
     second = BatchItem.objects.create(name="second", code="two")
     untouched = BatchItem.objects.create(name="untouched", code="three")
@@ -120,6 +128,24 @@ def test_default_batch_update_validates_against_each_existing_row() -> None:
     assert {row["id"] for row in response.data} == {first.pk, second.pk}
     untouched.refresh_from_db()
     assert untouched.name == "untouched"
+
+
+def test_batch_update_rejects_duplicate_rows_from_a_join() -> None:
+    parent = Parent.objects.create(name="original")
+    Child.objects.create(parent=parent, name="tag-one")
+    Child.objects.create(parent=parent, name="tag-two")
+    request = APIRequestFactory().patch(
+        "/parents/batch_update/", [{"id": parent.pk, "name": "changed"}], format="json"
+    )
+    view = ParentBatchViewSet.as_view(
+        {"patch": "batch_update"}, queryset=Parent.objects.filter(child__name__startswith="tag")
+    )
+
+    response = view(request)
+
+    assert response.status_code == 400, response.data
+    parent.refresh_from_db()
+    assert parent.name == "original"
 
 
 @pytest.mark.parametrize("duplicate_id", [False, True], ids=["unique-conflict", "duplicate-id"])

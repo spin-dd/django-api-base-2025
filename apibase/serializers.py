@@ -389,7 +389,7 @@ class BatchListSerializer(serializers.ListSerializer):
         lookup_id = id_field.to_internal_value(raw_id)
         try:
             instance = self.instance.get(**{id_attr: lookup_id})
-        except self.instance.model.DoesNotExist:
+        except (self.instance.model.DoesNotExist, self.instance.model.MultipleObjectsReturned):
             raise exceptions.ValidationError("Could not find all objects to update.") from None
         previous_instance = self.child.instance
         self.child.instance = instance
