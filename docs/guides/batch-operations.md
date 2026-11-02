@@ -96,6 +96,8 @@ JSON とフォーム入力のどちらでも同じ扱いです。
 読み取り専用の `id` も更新対象の指定に使えます。存在しない識別子、対象外の識別子、識別子の省略・重複は400になります。
 `Meta.list_serializer_class` を指定した場合は、そのクラスを使います。
 ViewSet は全対象の object permission を保存前に検査します。1行でも更新できない場合は全件を保存しません。
+permission には認証情報を保った各行の request を渡し、入れ子を含む検証前の入力を参照できるようにします。
+保存時にも一意性を確認するので、一括入力内で同じ非NULLのキーになる場合は400で全件を巻き戻します。
 
 ```python
 from apibase.serializers import BaseModelSerializer

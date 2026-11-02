@@ -12,6 +12,7 @@ from django.http import QueryDict
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
 from rest_framework.serializers import LIST_SERIALIZER_KWARGS, LIST_SERIALIZER_KWARGS_REMOVE
+from rest_framework.validators import UniqueTogetherValidator, UniqueValidator
 
 from . import identity
 from ._spectacular import OpenApiTypes, extend_schema_field
@@ -377,6 +378,27 @@ class BatchSerializerMixin:
 class BatchListSerializer(serializers.ListSerializer):
     update_lookup_field = "id"
 
+    def _validate_update_uniqueness(self, data: dict[str, Any]) -> None:
+        """Include earlier writes in this batch without rerunning business validation."""
+        for validator in self.child.validators:
+            if isinstance(validator, UniqueTogetherValidator):
+                validator(data, self.child)
+        for field in self.child.fields.values():
+            if field.read_only:
+                continue
+            try:
+                value = fields.get_attribute(data, field.source_attrs)
+            except (KeyError, AttributeError):
+                continue
+            if value is None or (value == "" and getattr(field, "allow_blank", False)):
+                continue
+            for validator in field.validators:
+                if isinstance(validator, UniqueValidator):
+                    try:
+                        validator(value, field)
+                    except exceptions.ValidationError as exc:
+                        raise exceptions.ValidationError({field.field_name: exc.detail}) from exc
+
     def run_child_validation(self, data: Any) -> Any:
         """Give update validators the matching row, including omitted field values."""
         if not isinstance(self.instance, QuerySet) or not isinstance(data, dict):
@@ -435,6 +457,7 @@ class BatchListSerializer(serializers.ListSerializer):
                 obj_validated_data = updating.get(obj_id)
 
                 self.child.instance = instance
+                self._validate_update_uniqueness(obj_validated_data)
                 updated_objects.append(self.child.update(instance, obj_validated_data))
 
         return updated_objects
