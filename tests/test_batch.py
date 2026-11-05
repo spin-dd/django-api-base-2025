@@ -6,16 +6,21 @@ so serializer-level tests supply a ``SimpleNamespace`` view/request stand-in.
 """
 
 from types import SimpleNamespace
+from typing import Any
 
 from django.http import QueryDict
 
 import pytest
+from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.test import APIRequestFactory
+from rest_framework.permissions import BasePermission
+from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.validators import UniqueTogetherValidator, UniqueValidator
 
 from apibase.serializers import BaseModelSerializer, BatchListSerializer, BatchSerializerMixin
 from apibase.viewsets import BaseModelViewSet
-from tests.models import BatchItem, Parent
+from tests.models import BatchItem, Child, NullableBatchItem, Parent
+from tests.test_atomic_writes import ParentSerializer
 
 pytestmark = pytest.mark.django_db
 
@@ -56,6 +61,289 @@ class BatchItemSerializer(BatchSerializerMixin, BaseModelSerializer):
 class BatchItemViewSet(BaseModelViewSet):
     queryset = BatchItem.objects.all()
     serializer_class = BatchItemSerializer
+
+
+class DefaultBatchItemSerializer(BaseModelSerializer):
+    id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = BatchItem
+        fields = ["id", "name", "code"]
+        read_only_fields = ["id"]
+        validators = [UniqueTogetherValidator(queryset=BatchItem.objects.all(), fields=["name", "code"])]
+
+
+class DefaultBatchItemViewSet(BaseModelViewSet):
+    queryset = BatchItem.objects.all()
+    serializer_class = DefaultBatchItemSerializer
+
+
+class SaveLifecycleBatchItemSerializer(DefaultBatchItemSerializer):
+    suffix = serializers.CharField(write_only=True)
+
+    class Meta(DefaultBatchItemSerializer.Meta):
+        fields = [*DefaultBatchItemSerializer.Meta.fields, "suffix"]
+
+    def save(self, **kwargs: Any) -> BatchItem:
+        assert self.initial_data["id"] == self.instance.pk
+        suffix = self.validated_data.pop("suffix")
+        instance = super().save(**kwargs)
+        instance.name += suffix
+        instance.save(update_fields=["name"])
+        # A save override may serialize its result. The next row needs fresh state.
+        assert self.data["name"] == instance.name
+        return instance
+
+
+def test_batch_update_runs_each_rows_save_lifecycle() -> None:
+    rows = [BatchItem.objects.create(name=name, code=name) for name in ("first", "second")]
+    payload = [{"id": row.pk, "name": row.name, "suffix": f"-{index}"} for index, row in enumerate(rows)]
+    view = DefaultBatchItemViewSet.as_view(
+        {"patch": "batch_update"}, serializer_class=SaveLifecycleBatchItemSerializer
+    )
+
+    response = view(APIRequestFactory().patch("/batch-items/batch_update/", payload, format="json"))
+
+    assert response.status_code == 200, response.data
+    assert list(BatchItem.objects.order_by("pk").values_list("name", flat=True)) == ["first-0", "second-1"]
+
+
+class BatchItemObjectPermission(BasePermission):
+    def has_permission(self, request: Any, view: Any) -> bool:
+        return not request.data.get("deny_request", False)
+
+    def has_object_permission(self, request: Any, view: Any, obj: BatchItem) -> bool:
+        return obj.code != "locked" and not request.data.get("deny_object", False)
+
+
+class PermissionBatchItemViewSet(DefaultBatchItemViewSet):
+    permission_classes = [BatchItemObjectPermission]
+
+
+class DenyNestedChanges(BasePermission):
+    def has_object_permission(self, request: Any, view: Any, obj: Parent) -> bool:
+        return "child_set" not in request.data
+
+
+def test_object_permission_receives_nested_input_before_validation_mutates_it() -> None:
+    parent = Parent.objects.create(name="original")
+    child = Child.objects.create(parent=parent, name="original child")
+    request = APIRequestFactory().patch(
+        "/parents/batch_update/",
+        [{"id": parent.pk, "name": "changed", "child_set": [{"id": child.pk, "name": "changed child"}]}],
+        format="json",
+    )
+    force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+    view = ParentBatchViewSet.as_view(
+        {"patch": "batch_update"}, serializer_class=ParentSerializer, permission_classes=[DenyNestedChanges]
+    )
+
+    response = view(request)
+
+    assert response.status_code == 403, response.data
+    parent.refresh_from_db()
+    child.refresh_from_db()
+    assert (parent.name, child.name) == ("original", "original child")
+
+
+class CustomReadOnlyIdListSerializer(serializers.ListSerializer):
+    def update(self, queryset: Any, validated_data: Any) -> list[Parent]:
+        instances = queryset.in_bulk()
+        return [
+            self.child.update(instances[int(raw["id"])], data)
+            for raw, data in zip(self.initial_data, validated_data, strict=True)
+        ]
+
+
+class CustomReadOnlyIdSerializer(BaseModelSerializer):
+    id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Parent
+        fields = ["id", "name"]
+        list_serializer_class = CustomReadOnlyIdListSerializer
+
+
+class ParentNamePermission(BasePermission):
+    def has_object_permission(self, request: Any, view: Any, obj: Parent) -> bool:
+        return request.data.get("name") != "forbidden"
+
+
+@pytest.mark.parametrize("name", ["changed", "forbidden"])
+def test_custom_list_update_keeps_read_only_id_support_and_object_permissions(name: str) -> None:
+    parent = Parent.objects.create(name="original")
+    request = APIRequestFactory().patch(
+        "/parents/batch_update/", [{"id": str(parent.pk), "name": name}], format="json"
+    )
+    force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+    view = ParentBatchViewSet.as_view(
+        {"patch": "batch_update"},
+        serializer_class=CustomReadOnlyIdSerializer,
+        permission_classes=[ParentNamePermission],
+    )
+
+    response = view(request)
+
+    assert response.status_code == (403 if name == "forbidden" else 200), response.data
+    parent.refresh_from_db()
+    assert parent.name == ("original" if name == "forbidden" else name)
+
+
+@pytest.mark.parametrize("denial", ["object", "deny_request", "deny_object"])
+def test_batch_update_checks_every_object_before_saving(denial: str) -> None:
+    allowed = BatchItem.objects.create(name="allowed", code="open")
+    forbidden = BatchItem.objects.create(name="forbidden", code="locked" if denial == "object" else "other")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": allowed.pk, "name": "changed"}, {"id": forbidden.pk, "name": "changed", denial: True}],
+        format="json",
+    )
+    force_authenticate(request, user=SimpleNamespace(is_authenticated=True))
+
+    response = PermissionBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 403, response.data
+    assert set(BatchItem.objects.values_list("name", flat=True)) == {"allowed", "forbidden"}
+
+
+def test_default_batch_update_validates_against_each_existing_row() -> None:
+    assert DefaultBatchItemSerializer().fields["id"].read_only is True
+    first = BatchItem.objects.create(name="first", code="one")
+    second = BatchItem.objects.create(name="second", code="two")
+    untouched = BatchItem.objects.create(name="untouched", code="three")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": str(first.pk), "name": "first"}, {"id": second.pk, "name": "changed"}],
+        format="json",
+    )
+
+    response = DefaultBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 200, response.data
+    assert set(BatchItem.objects.values_list("name", "code")) == {
+        ("first", "one"),
+        ("changed", "two"),
+        ("untouched", "three"),
+    }
+    assert {row["id"] for row in response.data} == {first.pk, second.pk}
+    untouched.refresh_from_db()
+    assert untouched.name == "untouched"
+
+
+def test_batch_update_rejects_duplicate_rows_from_a_join() -> None:
+    parent = Parent.objects.create(name="original")
+    Child.objects.create(parent=parent, name="tag-one")
+    Child.objects.create(parent=parent, name="tag-two")
+    request = APIRequestFactory().patch(
+        "/parents/batch_update/", [{"id": parent.pk, "name": "changed"}], format="json"
+    )
+    view = ParentBatchViewSet.as_view(
+        {"patch": "batch_update"}, queryset=Parent.objects.filter(child__name__startswith="tag")
+    )
+
+    response = view(request)
+
+    assert response.status_code == 400, response.data
+    parent.refresh_from_db()
+    assert parent.name == "original"
+
+
+@pytest.mark.parametrize("conflict", ["existing-row", "duplicate-id", "same-batch"])
+def test_default_batch_update_rejects_conflict_without_partial_save(conflict: str) -> None:
+    first = BatchItem.objects.create(name="first", code="same")
+    second = BatchItem.objects.create(name="second", code="same")
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [
+            {"id": first.pk, "name": "changed"},
+            {
+                "id": first.pk if conflict == "duplicate-id" else second.pk,
+                "name": "changed" if conflict == "same-batch" else "first",
+            },
+        ],
+        format="json",
+    )
+
+    response = DefaultBatchItemViewSet.as_view({"patch": "batch_update"})(request)
+
+    assert response.status_code == 400, response.data
+    assert set(BatchItem.objects.values_list("name", "code")) == {("first", "same"), ("second", "same")}
+
+
+class UniqueParentSerializer(BaseModelSerializer):
+    name = serializers.CharField(validators=[UniqueValidator(queryset=Parent.objects.all())])
+
+    class Meta:
+        model = Parent
+        fields = ["id", "name"]
+
+
+class NullableBatchItemSerializer(BaseModelSerializer):
+    class Meta:
+        model = NullableBatchItem
+        fields = ["id", "name", "code"]
+        validators = []
+
+
+class NullableCompositeBatchItemSerializer(BaseModelSerializer):
+    class Meta:
+        model = NullableBatchItem
+        fields = ["id", "name", "code"]
+
+
+def test_batch_uniqueness_recheck_includes_omitted_null_key_values() -> None:
+    rows = [NullableBatchItem.objects.create(name=name, code=None) for name in ("first", "second")]
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/", [{"id": row.pk, "name": "same"} for row in rows], format="json"
+    )
+    view = BatchItemViewSet.as_view(
+        {"patch": "batch_update"},
+        queryset=NullableBatchItem.objects.all(),
+        serializer_class=NullableCompositeBatchItemSerializer,
+    )
+
+    response = view(request)
+
+    assert response.status_code == 200, response.data
+    assert list(NullableBatchItem.objects.values_list("name", "code")) == [("same", None)] * 2
+
+
+@pytest.mark.parametrize("code", [None, ""], ids=["null-distinct", "blank-is-not-null"])
+def test_batch_uniqueness_recheck_keeps_null_values_distinct(code: str | None) -> None:
+    rows = [NullableBatchItem.objects.create(name=name, code=None) for name in ("first", "second")]
+    request = APIRequestFactory().patch(
+        "/batch-items/batch_update/",
+        [{"id": row.pk, "name": "changed", "code": code} for row in rows],
+        format="json",
+    )
+    view = BatchItemViewSet.as_view(
+        {"patch": "batch_update"},
+        queryset=NullableBatchItem.objects.all(),
+        serializer_class=NullableBatchItemSerializer,
+    )
+
+    response = view(request)
+
+    assert response.status_code == (200 if code is None else 400), response.data
+    assert list(NullableBatchItem.objects.values_list("name", "code")) == (
+        [("changed", None)] * 2 if code is None else [("first", None), ("second", None)]
+    )
+
+
+def test_batch_update_rechecks_field_uniqueness_between_rows() -> None:
+    first = Parent.objects.create(name="first")
+    second = Parent.objects.create(name="second")
+    request = APIRequestFactory().patch(
+        "/parents/batch_update/",
+        [{"id": first.pk, "name": "same"}, {"id": second.pk, "name": "same"}],
+        format="json",
+    )
+    view = ParentBatchViewSet.as_view({"patch": "batch_update"}, serializer_class=UniqueParentSerializer)
+
+    response = view(request)
+
+    assert response.status_code == 400, response.data
+    assert set(Parent.objects.values_list("name", flat=True)) == {"first", "second"}
 
 
 # ---------------------------------------------------------------------------
@@ -115,10 +403,8 @@ def test_bulk_update_raises_when_id_not_in_queryset():
         {"id": missing_id, "name": "ghost"},
     ]
     ser = _make_batch_serializer(Parent.objects.all(), payload)
-    assert ser.is_valid(raise_exception=True)
-
     with pytest.raises(ValidationError, match="Could not find all objects to update."):
-        ser.save()
+        ser.is_valid(raise_exception=True)
 
 
 def test_bulk_update_raises_when_id_is_missing_or_falsy():
@@ -131,10 +417,8 @@ def test_bulk_update_raises_when_id_is_missing_or_falsy():
         {"id": 0, "name": "no-id"},
     ]
     ser = _make_batch_serializer(Parent.objects.all(), payload)
-    assert ser.is_valid(raise_exception=True)
-
     with pytest.raises(ValidationError):
-        ser.save()
+        ser.is_valid(raise_exception=True)
 
 
 # ---------------------------------------------------------------------------

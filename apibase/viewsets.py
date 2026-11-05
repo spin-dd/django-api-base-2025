@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from logging import getLogger
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from django.contrib.auth.models import Permission
 from django.db import models as django_models, router, transaction
@@ -11,7 +12,9 @@ from django.utils.functional import cached_property
 from django.views import static
 
 from rest_framework import decorators, serializers, status, viewsets
+from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
+from rest_framework.utils import html
 
 from . import paginations, permissions, storages, utils
 from ._spectacular import OpenApiParameter, OpenApiTypes, extend_schema
@@ -21,6 +24,13 @@ _M = TypeVar("_M", bound=django_models.Model)
 
 
 logger = getLogger()
+
+
+def _row_request(request: Request, data: Any) -> Request:
+    """Keep authentication and metadata while exposing one batch row to permissions."""
+    row_request = clone_request(request, request.method)
+    row_request._full_data = data
+    return row_request
 
 
 class ViewSetMixin:
@@ -120,6 +130,18 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
     pagination_class = paginations.Pagination
     fields_query = None
 
+    def check_permissions(self, request: Request) -> None:
+        """Check request permissions with the same row-shaped data as a single update."""
+        if self.action == "batch_update":
+            data = request.data
+            if html.is_html_input(data):
+                data = html.parse_html_list(data, default=[])
+            if isinstance(data, list):
+                for row in data or [{}]:
+                    super().check_permissions(_row_request(request, row if isinstance(row, dict) else {}))
+                return
+        super().check_permissions(request)
+
     @decorators.action(methods=["post"], detail=False)
     def batch_create(self, request, *args, **kwargs):
         if request.method == "GET":
@@ -146,9 +168,16 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
             return self.create_batch(request, *args, **kwargs)
         return super().create(request, *args, **kwargs)
 
-    def update_batch(self, request, *args, **kwargs):
+    def update_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         queryset = self.filter_queryset(self.get_queryset())
+        data = request.data
+        if html.is_html_input(data):
+            data = html.parse_html_list(data, default=[])
+        # Serializers may pop nested input during validation. Preserve all row
+        # input for permissions without trying to copy uploaded file handles.
+        file_memo = {id(file): file for _, files in request.FILES.lists() for file in files}
+        original_data = deepcopy(data, file_memo)
         with transaction.atomic(using=router.db_for_write(queryset.model)):
             serializer = self.get_serializer(
                 queryset,
@@ -157,6 +186,17 @@ class BaseModelViewSet(viewsets.ModelViewSet[_M], ViewSetMixin, DownloadMixin):
                 partial=partial,
             )
             serializer.is_valid(raise_exception=True)
+            id_attr = getattr(serializer.child.Meta, "update_lookup_field", "id")
+            id_field = serializer.child.fields[id_attr]
+            identified = [(id_field.to_internal_value(id_field.get_value(raw)), raw) for raw in original_data]
+            instances = {
+                getattr(instance, id_attr): instance
+                for instance in queryset.filter(**{f"{id_attr}__in": [key for key, _ in identified]})
+            }
+            for key, raw in identified:
+                if key not in instances:
+                    raise serializers.ValidationError("Could not find all objects to update.")
+                self.check_object_permissions(_row_request(request, raw), instances[key])
             self.perform_update(serializer)
             return Response(serializer.data)
 

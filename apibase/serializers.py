@@ -1,15 +1,18 @@
 import inspect
 import re
+from typing import Any
 
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import router, transaction
-from django.db.models import Model
+from django.db.models import Model, QuerySet
 from django.db.models.fields.reverse_related import OneToOneRel
 from django.http import QueryDict
 
 from rest_framework import exceptions, fields, serializers
 from rest_framework.fields import empty
+from rest_framework.serializers import LIST_SERIALIZER_KWARGS, LIST_SERIALIZER_KWARGS_REMOVE
+from rest_framework.validators import UniqueTogetherValidator, UniqueValidator
 
 from . import identity
 from ._spectacular import OpenApiTypes, extend_schema_field
@@ -159,6 +162,20 @@ class BaseModelSerializer(serializers.ModelSerializer):
     nested_fields_updateds_signal = None
 
     action_handlers = {}
+
+    @classmethod
+    def many_init(cls, *args: Any, **kwargs: Any) -> serializers.ListSerializer:
+        """Use the batch implementation unless Meta selects a custom list serializer."""
+        list_kwargs = {}
+        for key in LIST_SERIALIZER_KWARGS_REMOVE:
+            value = kwargs.pop(key, None)
+            if value is not None:
+                list_kwargs[key] = value
+        list_kwargs["child"] = cls(*args, **kwargs)
+        list_kwargs.update({key: value for key, value in kwargs.items() if key in LIST_SERIALIZER_KWARGS})
+        meta = getattr(cls, "Meta", None)
+        list_serializer_class = getattr(meta, "list_serializer_class", BatchListSerializer)
+        return list_serializer_class(*args, **list_kwargs)
 
     def __init__(self, instance=None, data=empty, **kwargs):
         super().__init__(instance=instance, data=data, **kwargs)
@@ -361,10 +378,66 @@ class BatchSerializerMixin:
 class BatchListSerializer(serializers.ListSerializer):
     update_lookup_field = "id"
 
-    def update(self, queryset, all_validated_data):
+    def _validate_update_uniqueness(self, data: dict[str, Any]) -> None:
+        """Include earlier writes in this batch without rerunning business validation."""
+        for validator in self.child.validators:
+            if isinstance(validator, UniqueTogetherValidator):
+                sources = [self.child.fields[name].source for name in validator.fields]
+                if any(data.get(source, getattr(self.child.instance, source)) is None for source in sources):
+                    continue
+                validator(data, self.child)
+        for field in self.child.fields.values():
+            if field.read_only:
+                continue
+            try:
+                value = fields.get_attribute(data, field.source_attrs)
+            except (KeyError, AttributeError):
+                continue
+            if value is None:
+                continue
+            for validator in field.validators:
+                if isinstance(validator, UniqueValidator):
+                    try:
+                        validator(value, field)
+                    except exceptions.ValidationError as exc:
+                        raise exceptions.ValidationError({field.field_name: exc.detail}) from exc
+
+    def run_child_validation(self, data: Any) -> Any:
+        """Give update validators the matching row, including omitted field values."""
+        if not isinstance(self.instance, QuerySet) or not isinstance(data, dict):
+            return super().run_child_validation(data)
+        id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
+        id_field = self.child.fields[id_attr]
+        raw_id = id_field.get_value(data)
+        if raw_id is empty:
+            raise exceptions.ValidationError({id_attr: "This field is required."}, code="required")
+        lookup_id = id_field.to_internal_value(raw_id)
+        if not hasattr(self, "_initial_rows"):
+            self._initial_rows = {}
+        self._initial_rows[lookup_id] = data.copy()
+        try:
+            instance = self.instance.get(**{id_attr: lookup_id})
+        except (self.instance.model.DoesNotExist, self.instance.model.MultipleObjectsReturned):
+            raise exceptions.ValidationError("Could not find all objects to update.") from None
+        previous_instance = self.child.instance
+        self.child.instance = instance
+        self.child.initial_data = data
+        try:
+            validated = super().run_child_validation(data)
+            # The identifier selects the row even when the model serializer makes
+            # it read-only. It is removed again before calling child.save().
+            validated[id_attr] = lookup_id
+            return validated
+        finally:
+            self.child.instance = previous_instance
+
+    def update(self, queryset: QuerySet, all_validated_data: list[dict[str, Any]]) -> list[Model]:
         id_attr = getattr(self.child.Meta, "update_lookup_field", "id")
 
         updating = {i.pop(id_attr, empty): i for i in all_validated_data}
+
+        if len(updating) != len(all_validated_data):
+            raise exceptions.ValidationError("Duplicate objects in batch update.")
 
         if not all(bool(i) and not inspect.isclass(i) for i in updating.keys()):
             raise exceptions.ValidationError("")
@@ -389,6 +462,18 @@ class BatchListSerializer(serializers.ListSerializer):
                 obj_id = getattr(instance, id_attr)
                 obj_validated_data = updating.get(obj_id)
 
-                updated_objects.append(self.child.update(instance, obj_validated_data))
+                self.child.instance = instance
+                self._validate_update_uniqueness(obj_validated_data)
+                # Validation has already succeeded for every row. Install this
+                # row's state so save overrides see the same contract as a
+                # single update, without repeating business validation.
+                self.child.initial_data = getattr(self, "_initial_rows", {}).get(obj_id, obj_validated_data.copy())
+                self.child._validated_data = obj_validated_data
+                self.child._errors = {}
+                self.child.__dict__.pop("_data", None)
+                self.child._children_set = {
+                    name: obj_validated_data.get(name) for name in getattr(self.child, "nested_fields", [])
+                }
+                updated_objects.append(self.child.save())
 
         return updated_objects

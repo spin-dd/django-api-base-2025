@@ -53,6 +53,17 @@ class BatchItem(models.Model):
         app_label = "tests"
 
 
+class NullableBatchItem(models.Model):
+    """NULL remains distinct while field uniqueness is rechecked during a batch."""
+
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=100, null=True, blank=True, unique=True)
+
+    class Meta:
+        app_label = "tests"
+        constraints = [models.UniqueConstraint(fields=["name", "code"], name="nullable_batch_name_code")]
+
+
 class SoftDeleteManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(deleted=False)
